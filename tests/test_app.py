@@ -14,6 +14,16 @@ class ModelConfigurationTests(unittest.TestCase):
         self.assertEqual(models["demo:model-a"].api_key, "secret")
         self.assertEqual(models["demo:model-a"].base_url, "https://example.com/v1")
 
+    def test_openrouter_secret_auto_configures_default_model(self):
+        with patch.dict(os.environ, {
+            "AI_PROVIDERS_JSON": "[]",
+            "OPENROUTER_API_KEY": "test-openrouter-key",
+        }, clear=False):
+            models = app.load_models()
+        self.assertIn("openrouter:openai/gpt-4.1-mini", models)
+        self.assertEqual(models["openrouter:openai/gpt-4.1-mini"].api_key, "test-openrouter-key")
+        self.assertEqual(models["openrouter:openai/gpt-4.1-mini"].base_url, "https://openrouter.ai/api/v1")
+
     def test_invalid_json_is_rejected(self):
         with patch.dict(os.environ, {"AI_PROVIDERS_JSON": "not-json"}, clear=False):
             with self.assertRaises(RuntimeError):
