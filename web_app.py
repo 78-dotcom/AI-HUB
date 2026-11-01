@@ -162,7 +162,7 @@ async def session_status(request: Request) -> dict[str, bool]:
 
 
 @app.post("/api/login")
-async def login(body: LoginBody, response: Response) -> dict[str, bool]:
+async def login(body: LoginBody, request: Request, response: Response) -> dict[str, bool]:
     expected = os.getenv("HUB_ACCESS_PASSWORD", "")
     if not expected or not _session_secret():
         raise HTTPException(status_code=503, detail="AI HUB access is not configured yet.")
