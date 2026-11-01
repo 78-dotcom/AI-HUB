@@ -14,7 +14,7 @@ A multilingual, multi-provider AI assistant platform. The first milestone is a T
 
 1. Create a Telegram bot with BotFather and copy its token.
 2. Copy `.env.example` to `.env` and fill in your Telegram token and provider API key(s).
-3. Configure at least one provider in `AI_PROVIDERS_JSON` (see the example).
+3. Configure at least one provider in `AI_PROVIDERS_JSON` (see the example). For a simple OpenRouter-only setup, setting `OPENROUTER_API_KEY` is enough; when `AI_PROVIDERS_JSON` is empty, the app automatically configures `openrouter:openai/gpt-4.1-mini`. Override the model with `OPENROUTER_MODEL`.
 4. Install Python 3.11+ dependencies and start the bot:
 
 ```bash
