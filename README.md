@@ -58,6 +58,7 @@ By default, the bot is private: add your numeric Telegram user ID to `TELEGRAM_A
 
 ## Telegram commands
 
+- `/myid` — show your Telegram numeric ID for private access setup
 - `/start` — welcome and quick start.
 - `/help` — commands and usage.
 - `/models` — list configured provider/model pairs.
