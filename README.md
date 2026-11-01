@@ -99,3 +99,12 @@ Set these environment variables in the hosting provider's secret manager:
 - Optional: `OPENROUTER_MODEL` and `DEFAULT_MODEL`.
 
 Do not commit real secrets. The first web release is a private single-workspace preview, not yet a public multi-user product. It does not yet include account registration, billing, persistent server-side chat history, or native mobile apps.
+
+
+### Web app security and automated checks
+
+- Workspace password sign-in is rate-limited to five failed attempts per client address in a 15-minute window.
+- Session cookies are HTTP-only and use the Secure attribute on Render/HTTPS.
+- API responses are marked as non-cacheable and receive baseline browser security headers.
+- GitHub Actions runs the Python test suite on pushes to `main` and pull requests targeting `main`.
+- The sign-in throttle is process-local in this preview; a multi-instance production deployment should move rate limiting to shared storage.
