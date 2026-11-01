@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: ai-hub-telegram
+    runtime: docker
+    plan: 0.5c-512mb
+    region: frankfurt
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: TELEGRAM_ALLOWED_USER_IDS
+        sync: false
+      - key: AI_PROVIDERS_JSON
+        value: "[]"
+      - key: BOT_PUBLIC_ACCESS
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
