@@ -8,7 +8,7 @@ A multilingual, multi-provider AI assistant platform. The first milestone is a T
 - OpenAI-compatible API provider adapter, configurable for multiple providers.
 - Per-user model selection and short in-memory conversation context.
 - Secrets are read from environment variables; never commit API keys or bot tokens.
-- Optional Telegram user allow-list.
+- Telegram user allow-list is enforced by default; public access requires an explicit opt-in.
 
 ## Run locally
 
@@ -51,6 +51,10 @@ Example:
 ```
 
 Only add providers for which you have your own valid API credentials and permission to use the models. Provider/model availability and pricing are controlled by the provider.
+
+## Access control
+
+By default, the bot is private: add your numeric Telegram user ID to `TELEGRAM_ALLOWED_USER_IDS`. An empty allow-list denies access. Only set `BOT_PUBLIC_ACCESS=true` when you intentionally want anyone to use the bot and have added suitable spending limits at the provider/hosting level. Do not expose a paid API-backed bot publicly without cost controls.
 
 ## Telegram commands
 
