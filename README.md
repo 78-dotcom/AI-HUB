@@ -78,3 +78,24 @@ For a first test, run locally. For always-on operation, deploy the container to 
 5. Expand provider adapters and optional tools with explicit user choice.
 
 Crypto-arbitrage is not part of the built-in product scope.
+
+## AI HUB web app (early MVP)
+
+The repository now includes a private, responsive web app alongside the Telegram prototype.
+
+- `web/index.html` — responsive chat interface with English/Russian UI and model selection.
+- `web_app.py` — FastAPI backend; provider API keys remain server-side.
+- `Dockerfile.web` — web app container entry point.
+- `render.yaml` — deploys only the web app as a free Render web service. The Telegram bot is not included in this web deployment.
+
+### Web app configuration
+
+Set these environment variables in the hosting provider's secret manager:
+
+- `HUB_ACCESS_PASSWORD` — password for the private early-access workspace.
+- `HUB_SESSION_SECRET` — long random secret used to sign login sessions.
+- `OPENROUTER_API_KEY` — provider API key.
+- `AI_PROVIDERS_JSON=[]` — enables the simple OpenRouter configuration when its API key is present.
+- Optional: `OPENROUTER_MODEL` and `DEFAULT_MODEL`.
+
+Do not commit real secrets. The first web release is a private single-workspace preview, not yet a public multi-user product. It does not yet include account registration, billing, persistent server-side chat history, or native mobile apps.
