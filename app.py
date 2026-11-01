@@ -85,6 +85,8 @@ ALLOWED_USER_IDS = {
     int(item.strip()) for item in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
     if item.strip().isdigit()
 }
+# Public access must be explicitly enabled; otherwise an empty allow-list denies everyone.
+PUBLIC_ACCESS = os.getenv("BOT_PUBLIC_ACCESS", "false").strip().lower() in {"1", "true", "yes"}
 HISTORY: dict[int, deque[dict[str, str]]] = defaultdict(
     lambda: deque(maxlen=MAX_HISTORY_MESSAGES)
 )
@@ -92,7 +94,7 @@ USER_MODELS: dict[int, str] = {}
 
 
 def is_allowed(user_id: int) -> bool:
-    return not ALLOWED_USER_IDS or user_id in ALLOWED_USER_IDS
+    return PUBLIC_ACCESS or user_id in ALLOWED_USER_IDS
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
