@@ -109,6 +109,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the caller's own Telegram numeric ID for private bot setup."""
+    if not update.effective_message or not update.effective_user:
+        return
+    await update.effective_message.reply_text(
+        f"Твой Telegram ID: {update.effective_user.id}"
+    )
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message:
         await update.effective_message.reply_text(
@@ -230,6 +239,7 @@ def main() -> None:
         logger.warning("No AI models configured. Bot commands will work, but chat replies are disabled.")
     application = Application.builder().token(token).post_init(post_init).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("models", models_command))
     application.add_handler(CommandHandler("use", use_command))
