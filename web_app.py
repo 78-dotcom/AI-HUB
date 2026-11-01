@@ -24,9 +24,40 @@ SESSION_COOKIE = "aihub_session"
 SESSION_TTL = 60 * 60 * 24 * 7
 MAX_HISTORY = 20
 MAX_TEXT = 12000
+LOGIN_WINDOW = 15 * 60
+LOGIN_MAX_FAILURES = 5
+_login_failures: dict[str, list[float]] = {}
 
 app = FastAPI(title="AI HUB", version="0.1.0")
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    if os.getenv("RENDER"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+def _login_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _recent_login_failures(key: str, now: float | None = None) -> list[float]:
+    current = time.time() if now is None else now
+    recent = [stamp for stamp in _login_failures.get(key, []) if current - stamp < LOGIN_WINDOW]
+    if recent:
+        _login_failures[key] = recent
+    else:
+        _login_failures.pop(key, None)
+    return recent
 
 
 def _expand_env(value: str) -> str:
@@ -135,10 +166,23 @@ async def login(body: LoginBody, response: Response) -> dict[str, bool]:
     expected = os.getenv("HUB_ACCESS_PASSWORD", "")
     if not expected or not _session_secret():
         raise HTTPException(status_code=503, detail="AI HUB access is not configured yet.")
+    key = _login_key(request)
+    now = time.time()
+    failures = _recent_login_failures(key, now)
+    if len(failures) >= LOGIN_MAX_FAILURES:
+        retry_after = max(1, int(LOGIN_WINDOW - (now - failures[0])))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Please wait before trying again.",
+            headers={"Retry-After": str(retry_after)},
+        )
     if not hmac.compare_digest(body.password, expected):
+        _login_failures[key] = [*failures, now]
         raise HTTPException(status_code=401, detail="Incorrect password.")
+    _login_failures.pop(key, None)
+    secure_cookie = bool(os.getenv("RENDER")) or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
-        SESSION_COOKIE, _make_session(), httponly=True, secure=bool(os.getenv("RENDER")),
+        SESSION_COOKIE, _make_session(), httponly=True, secure=secure_cookie,
         samesite="lax", max_age=SESSION_TTL, path="/",
     )
     return {"authenticated": True}
