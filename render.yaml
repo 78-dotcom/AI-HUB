@@ -16,6 +16,6 @@ services:
       - key: HUB_ACCESS_PASSWORD
         sync: false
       - key: HUB_SESSION_SECRET
-        sync: false
+        generateValue: true
       - key: LOG_LEVEL
         value: INFO
