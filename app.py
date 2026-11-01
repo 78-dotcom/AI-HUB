@@ -57,6 +57,17 @@ def load_models() -> dict[str, Model]:
     if not isinstance(providers, list):
         raise RuntimeError("AI_PROVIDERS_JSON must be a JSON array")
 
+    # Simple single-provider setup: a GitHub/host secret named OPENROUTER_API_KEY
+    # is enough to enable OpenRouter without requiring a JSON secret as well.
+    if not providers and os.getenv("OPENROUTER_API_KEY", "").strip():
+        providers = [{
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            "api_key": "${OPENROUTER_API_KEY}",
+            "models": [os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini")],
+        }]
+
     result: dict[str, Model] = {}
     for provider in providers:
         if not isinstance(provider, dict):
