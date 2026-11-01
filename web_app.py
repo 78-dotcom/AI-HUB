@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import time
+from typing import Any
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+load_dotenv()
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+WEB_DIR = os.path.join(APP_DIR, "web")
+SESSION_COOKIE = "aihub_session"
+SESSION_TTL = 60 * 60 * 24 * 7
+MAX_HISTORY = 20
+MAX_TEXT = 12000
+
+app = FastAPI(title="AI HUB", version="0.1.0")
+app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+
+
+def _expand_env(value: str) -> str:
+    match = re.fullmatch(r"\$\{([A-Z0-9_]+)\}", value.strip())
+    return os.getenv(match.group(1), "") if match else value
+
+
+def load_models() -> dict[str, dict[str, Any]]:
+    try:
+        providers = json.loads(os.getenv("AI_PROVIDERS_JSON", "[]"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("AI_PROVIDERS_JSON must be valid JSON") from exc
+    if not isinstance(providers, list):
+        raise RuntimeError("AI_PROVIDERS_JSON must be a JSON array")
+
+    if not providers and os.getenv("OPENROUTER_API_KEY", "").strip():
+        providers = [{
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            "api_key": "${OPENROUTER_API_KEY}",
+            "models": [os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini")],
+        }]
+
+    models: dict[str, dict[str, Any]] = {}
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        pid = str(provider.get("id", "")).strip()
+        name = str(provider.get("name", pid)).strip()
+        base = str(provider.get("base_url", "")).strip().rstrip("/")
+        key = _expand_env(str(provider.get("api_key", ""))).strip()
+        entries = provider.get("models", [])
+        if not pid or not base or not key or not isinstance(entries, list):
+            continue
+        for item in entries:
+            model = str(item).strip()
+            if model:
+                models[f"{pid}:{model}"] = {
+                    "id": f"{pid}:{model}", "provider": pid, "provider_name": name,
+                    "model": model, "base_url": base, "api_key": key,
+                }
+    return models
+
+
+def _session_secret() -> str:
+    return os.getenv("HUB_SESSION_SECRET", "").strip()
+
+
+def _signature(payload: str) -> str:
+    return hmac.new(_session_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _make_session() -> str:
+    payload = base64.urlsafe_b64encode(str(int(time.time())).encode()).decode().rstrip("=")
+    return f"{payload}.{_signature(payload)}"
+
+
+def _valid_session(request: Request) -> bool:
+    secret = _session_secret()
+    token = request.cookies.get(SESSION_COOKIE, "")
+    if not secret or "." not in token:
+        return False
+    payload, supplied = token.rsplit(".", 1)
+    if not hmac.compare_digest(_signature(payload), supplied):
+        return False
+    try:
+        issued = int(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode())
+    except (ValueError, UnicodeDecodeError):
+        return False
+    age = int(time.time()) - issued
+    return 0 <= age <= SESSION_TTL
+
+
+def require_session(request: Request) -> None:
+    if not _valid_session(request):
+        raise HTTPException(status_code=401, detail="Please sign in to AI HUB.")
+
+
+class LoginBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class ChatBody(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    messages: list[dict[str, str]] = Field(min_length=1, max_length=MAX_HISTORY)
+
+
+@app.get("/")
+async def index() -> FileResponse:
+    return FileResponse(os.path.join(WEB_DIR, "index.html"))
+
+
+@app.get("/api/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "app": "AI HUB"}
+
+
+@app.get("/api/session")
+async def session_status(request: Request) -> dict[str, bool]:
+    return {"authenticated": _valid_session(request)}
+
+
+@app.post("/api/login")
+async def login(body: LoginBody, response: Response) -> dict[str, bool]:
+    expected = os.getenv("HUB_ACCESS_PASSWORD", "")
+    if not expected or not _session_secret():
+        raise HTTPException(status_code=503, detail="AI HUB access is not configured yet.")
+    if not hmac.compare_digest(body.password, expected):
+        raise HTTPException(status_code=401, detail="Incorrect password.")
+    response.set_cookie(
+        SESSION_COOKIE, _make_session(), httponly=True, secure=bool(os.getenv("RENDER")),
+        samesite="lax", max_age=SESSION_TTL, path="/",
+    )
+    return {"authenticated": True}
+
+
+@app.post("/api/logout")
+async def logout(response: Response) -> dict[str, bool]:
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+    return {"authenticated": False}
+
+
+@app.get("/api/models")
+async def models(request: Request) -> dict[str, Any]:
+    require_session(request)
+    configured = load_models()
+    public_models = [
+        {"id": item["id"], "provider": item["provider"], "provider_name": item["provider_name"], "model": item["model"]}
+        for item in configured.values()
+    ]
+    return {"models": public_models, "default": os.getenv("DEFAULT_MODEL", "") or (public_models[0]["id"] if public_models else "")}
+
+
+@app.post("/api/chat")
+async def chat(body: ChatBody, request: Request) -> dict[str, str]:
+    require_session(request)
+    model = load_models().get(body.model)
+    if not model:
+        raise HTTPException(status_code=400, detail="That model is not configured.")
+    messages: list[dict[str, str]] = []
+    for item in body.messages[-MAX_HISTORY:]:
+        role = item.get("role")
+        content = item.get("content", "")
+        if role not in {"user", "assistant"} or not isinstance(content, str) or len(content) > MAX_TEXT:
+            raise HTTPException(status_code=400, detail="Invalid conversation message.")
+        messages.append({"role": role, "content": content})
+    if not messages or messages[-1]["role"] != "user":
+        raise HTTPException(status_code=400, detail="The last message must be from the user.")
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(75.0, connect=15.0)) as client:
+            result = await client.post(
+                f'{model["base_url"]}/chat/completions',
+                headers={"Authorization": f'Bearer {model["api_key"]}', "Content-Type": "application/json"},
+                json={"model": model["model"], "messages": messages, "temperature": 0.7},
+            )
+            result.raise_for_status()
+            data = result.json()
+        answer = str(data["choices"][0]["message"]["content"]).strip()
+        if not answer:
+            raise ValueError("Empty model response")
+        return {"answer": answer}
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
+    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="Could not get a response from the AI provider. Please try again.") from exc
