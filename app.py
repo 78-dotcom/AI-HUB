@@ -11,9 +11,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
+load_dotenv()
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
