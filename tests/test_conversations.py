@@ -50,14 +50,14 @@ class ConversationPersistenceTests(unittest.TestCase):
             )
 
         with self.engine.connect() as connection:
-            conversation = connection.execute(
-                select(Conversation).where(Conversation.id == conversation_id)
+            conversation_user_id = connection.execute(
+                select(Conversation.user_id).where(Conversation.id == conversation_id)
             ).scalar_one()
             messages = connection.execute(
-                select(Message).where(Message.conversation_id == conversation_id)
-            ).scalars().all()
+                select(Message.role, Message.content).where(Message.conversation_id == conversation_id)
+            ).all()
 
-        self.assertEqual(conversation.user_id, "user-one")
+        self.assertEqual(conversation_user_id, "user-one")
         self.assertEqual({message.role for message in messages}, {"user", "assistant"})
         self.assertEqual({message.content for message in messages},
                          {"Latest question", "Latest answer"})
