@@ -15,6 +15,10 @@ services:
         value: "[]"
       - key: HUB_ACCESS_PASSWORD
         sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: HUB_SIGNUP_CODE
+        sync: false
       - key: HUB_SESSION_SECRET
         generateValue: true
       - key: LOG_LEVEL

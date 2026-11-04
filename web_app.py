@@ -16,6 +16,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from accounts import account_user, revoke_account_session, router as accounts_router
+
 load_dotenv()
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +30,8 @@ LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_FAILURES = 5
 _login_failures: dict[str, list[float]] = {}
 
-app = FastAPI(title="AI HUB", version="0.1.0")
+app = FastAPI(title="AI HUB", version="0.2.0")
+app.include_router(accounts_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
@@ -133,7 +136,7 @@ def _valid_session(request: Request) -> bool:
 
 
 def require_session(request: Request) -> None:
-    if not _valid_session(request):
+    if not _valid_session(request) and not account_user(request):
         raise HTTPException(status_code=401, detail="Please sign in to AI HUB.")
 
 
@@ -158,7 +161,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/session")
 async def session_status(request: Request) -> dict[str, bool]:
-    return {"authenticated": _valid_session(request)}
+    return {"authenticated": _valid_session(request) or bool(account_user(request))}
 
 
 @app.post("/api/login")
@@ -189,8 +192,9 @@ async def login(body: LoginBody, request: Request, response: Response) -> dict[s
 
 
 @app.post("/api/logout")
-async def logout(response: Response) -> dict[str, bool]:
+async def logout(request: Request, response: Response) -> dict[str, bool]:
     response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+    revoke_account_session(request, response)
     return {"authenticated": False}
 
 
