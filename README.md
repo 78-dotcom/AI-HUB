@@ -85,6 +85,23 @@ Example:
 ]
 ```
 
+Model entries may also be objects when you want richer catalogue information:
+
+```json
+{
+  "id": "vision-model",
+  "name": "Vision Model",
+  "description": "A short description shown in the model catalogue",
+  "category": "vision",
+  "capabilities": ["chat", "vision"],
+  "input_modalities": ["text", "image"],
+  "output_modalities": ["text"],
+  "context_window": 128000
+}
+```
+
+String model IDs remain supported for backward compatibility. The catalogue metadata is descriptive only: listing a capability does not add an image/audio/video API adapter by itself. Only configure capabilities that the provider and selected model actually support.
+
 Only configure providers for which you have valid credentials and permission to use the models. Availability and pricing are controlled by each provider.
 
 ## Deploy on Render
