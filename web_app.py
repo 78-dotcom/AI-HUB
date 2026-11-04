@@ -16,6 +16,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from accounts import router as accounts_router
+
 load_dotenv()
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +30,8 @@ LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_FAILURES = 5
 _login_failures: dict[str, list[float]] = {}
 
-app = FastAPI(title="AI HUB", version="0.1.0")
+app = FastAPI(title="AI HUB", version="0.2.0")
+app.include_router(accounts_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
