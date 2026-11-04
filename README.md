@@ -14,6 +14,10 @@ AI HUB is a multilingual workspace for using AI models from multiple providers t
 
 The live Render service currently runs the web app from the repository's `Dockerfile`. The Telegram bot prototype in `app.py` is separate and is not part of that web deployment.
 
+## PostgreSQL database foundation
+
+A portable PostgreSQL schema and Supabase Free setup guide are included. Account-owned chat history is wired to PostgreSQL and syncs across sessions once `DATABASE_URL` is configured. Apply `supabase/migrations/20261104140000_initial_schema.sql` in the Supabase SQL Editor and follow [`docs/SUPABASE.md`](docs/SUPABASE.md). The shared-workspace preview still keeps its history in the browser; synced history requires an individual account.
+
 ## Known MVP limitations
 
 - Individual account endpoints and UI are implemented on the feature branch, but they remain unavailable in production until a PostgreSQL `DATABASE_URL` and private `HUB_SIGNUP_CODE` are configured.
