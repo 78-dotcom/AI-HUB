@@ -240,7 +240,7 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
         answer = str(data["choices"][0]["message"]["content"]).strip()
         if not answer:
             raise ValueError("Empty model response")
-        conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer)
+        conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
         return {"answer": answer, "conversation_id": conversation_id}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
