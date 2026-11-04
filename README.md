@@ -1,110 +1,106 @@
 # AI HUB
 
-A multilingual, multi-provider AI assistant platform. The first milestone is a Telegram MVP; web, Android and iOS clients can be added on the same provider layer.
+AI HUB is a multilingual workspace for using AI models from multiple providers through one interface. The product is being developed in stages: the current web app is a private early-access MVP, not yet a public multi-user platform.
 
-## Current MVP
+## Current state
 
-- Telegram bot with `/start`, `/help`, `/models`, and `/use`.
-- OpenAI-compatible API provider adapter, configurable for multiple providers.
-- Per-user model selection and short in-memory conversation context.
-- Secrets are read from environment variables; never commit API keys or bot tokens.
-- Telegram user allow-list is enforced by default; public access requires an explicit opt-in.
+- Responsive web chat with English and Russian interface text.
+- FastAPI backend; provider API keys stay on the server.
+- OpenAI-compatible provider adapter, with OpenRouter available as the simple default integration.
+- Server-side model list and model selection.
+- Password-protected single-workspace access.
+- Signed HTTP-only session cookie, baseline security headers, and process-local login throttling.
+- GitHub Actions runs unit tests and Python compilation checks.
 
-## Run locally
+The live Render service currently runs the web app from the repository's `Dockerfile`. The Telegram bot prototype in `app.py` is separate and is not part of that web deployment.
 
-1. Create a Telegram bot with BotFather and copy its token.
-2. Copy `.env.example` to `.env` and fill in your Telegram token and provider API key(s).
-3. Configure at least one provider in `AI_PROVIDERS_JSON` (see the example). For a simple OpenRouter-only setup, setting `OPENROUTER_API_KEY` is enough; when `AI_PROVIDERS_JSON` is empty, the app automatically configures `openrouter:openai/gpt-4.1-mini`. Override the model with `OPENROUTER_MODEL`.
-4. Install Python 3.11+ dependencies and start the bot:
+## Known MVP limitations
 
-```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-python -m app
-```
+- One shared workspace password; there is no individual user registration or account management yet.
+- Chat history is stored in the browser's local storage, not in a server database. It does not sync between devices.
+- Login throttling is process-local and is not suitable as the only abuse control for a multi-instance public service.
+- No subscriptions, billing, usage metering, or user-level spending limits yet.
+- Only OpenAI-compatible chat-completion providers are supported by the current web backend.
+- No native Android or iOS apps yet.
 
-## Provider configuration
+Do not expose a paid provider key through an unrestricted public deployment. Add provider credentials only through the hosting platform's secret manager, and keep provider spending limits enabled.
 
-`AI_PROVIDERS_JSON` is a JSON array. Each entry has a unique `id`, display `name`, `base_url`, `api_key`, and `models` array. The API key can be written as an environment-variable reference such as `${OPENAI_API_KEY}`; the application resolves it at startup.
+## Run the web app locally
+
+1. Use Python 3.12 or newer.
+2. Create and activate a virtual environment.
+3. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Set the environment variables:
+
+   - `HUB_ACCESS_PASSWORD` — password for the private preview.
+   - `HUB_SESSION_SECRET` — long, random secret used to sign sessions.
+   - `OPENROUTER_API_KEY` — optional provider key for the default OpenRouter model.
+   - `AI_PROVIDERS_JSON=[]` — use the simple OpenRouter setup when its key is present.
+   - `OPENROUTER_MODEL` — optional model override; defaults to `openai/gpt-4.1-mini`.
+   - `DEFAULT_MODEL` — optional configured model ID override.
+
+5. Start the API and web app:
+
+   ```bash
+   uvicorn web_app:app --reload
+   ```
+
+Open `http://127.0.0.1:8000`.
+
+## Configure multiple providers
+
+Set `AI_PROVIDERS_JSON` to a JSON array. Each provider entry contains an ID, display name, OpenAI-compatible base URL, API key (or an environment-variable reference), and model IDs.
 
 Example:
 
 ```json
 [
   {
-    "id": "openai",
-    "name": "OpenAI",
-    "base_url": "https://api.openai.com/v1",
-    "api_key": "${OPENAI_API_KEY}",
-    "models": ["gpt-4.1-mini"]
-  },
-  {
     "id": "openrouter",
     "name": "OpenRouter",
     "base_url": "https://openrouter.ai/api/v1",
     "api_key": "${OPENROUTER_API_KEY}",
     "models": ["openai/gpt-4.1-mini"]
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "${OPENAI_API_KEY}",
+    "models": ["gpt-4.1-mini"]
   }
 ]
 ```
 
-Only add providers for which you have your own valid API credentials and permission to use the models. Provider/model availability and pricing are controlled by the provider.
+Only configure providers for which you have valid credentials and permission to use the models. Availability and pricing are controlled by each provider.
 
-## Access control
+## Deploy on Render
 
-By default, the bot is private: add your numeric Telegram user ID to `TELEGRAM_ALLOWED_USER_IDS`. An empty allow-list denies access. Only set `BOT_PUBLIC_ACCESS=true` when you intentionally want anyone to use the bot and have added suitable spending limits at the provider/hosting level. Do not expose a paid API-backed bot publicly without cost controls.
+The repository includes a Render Blueprint in `render.yaml`. It describes the existing web service configuration and expects secrets to be added in Render's environment settings:
 
-## Telegram commands
+- `HUB_ACCESS_PASSWORD`
+- `HUB_SESSION_SECRET`
+- `OPENROUTER_API_KEY`
 
-- `/myid` — show your Telegram numeric ID for private access setup
-- `/start` — welcome and quick start.
-- `/help` — commands and usage.
-- `/models` — list configured provider/model pairs.
-- `/use provider_id:model_name` — choose a model, e.g. `/use openai:gpt-4.1-mini`.
-- Send a normal message to chat with the selected model.
+Never commit real credentials, `.env` files, or API keys. The web service uses the root `Dockerfile`; the container starts Uvicorn on Render's `PORT`.
 
-## Deployment
+## Telegram prototype
 
-For a first test, run locally. For always-on operation, deploy the container to a trusted host and set environment variables in the host's secret manager. Do not commit `.env`, tokens, or API keys.
+The Telegram bot remains an experimental, separate entry point. It is started with `python -m app` after setting `TELEGRAM_BOT_TOKEN`, provider credentials, and (for private use) `TELEGRAM_ALLOWED_USER_IDS`. Public bot access is disabled unless explicitly enabled with `BOT_PUBLIC_ACCESS=true`. It is not deployed by the current Render web service.
 
-## Roadmap
+## Product roadmap
 
-1. Validate Telegram MVP and provider connectivity.
-2. Add user accounts, persistent settings, rate limits, usage/cost tracking and admin controls.
-3. Add a documented REST API and web client.
-4. Add Android and iOS clients.
-5. Expand provider adapters and optional tools with explicit user choice.
+1. Stabilize the web foundation, provider configuration, tests, and deployment.
+2. Add individual accounts, secure password recovery, and persistent user data.
+3. Add server-side chat history, usage metering, quotas, and admin controls.
+4. Add more provider adapters and model capabilities with transparent pricing.
+5. Add subscriptions and payment processing.
+6. Expand into image, video, audio, research, coding, and agent workflows.
+7. Deliver Android and iOS clients on the shared backend.
 
-Crypto-arbitrage is not part of the built-in product scope.
-
-## AI HUB web app (early MVP)
-
-The repository now includes a private, responsive web app alongside the Telegram prototype.
-
-- `web/index.html` — responsive chat interface with English/Russian UI and model selection.
-- `web_app.py` — FastAPI backend; provider API keys remain server-side.
-- `Dockerfile.web` — web app container entry point.
-- `render.yaml` — deploys only the web app as a free Render web service. The Telegram bot is not included in this web deployment.
-
-### Web app configuration
-
-Set these environment variables in the hosting provider's secret manager:
-
-- `HUB_ACCESS_PASSWORD` — password for the private early-access workspace.
-- `HUB_SESSION_SECRET` — long random secret used to sign login sessions.
-- `OPENROUTER_API_KEY` — provider API key.
-- `AI_PROVIDERS_JSON=[]` — enables the simple OpenRouter configuration when its API key is present.
-- Optional: `OPENROUTER_MODEL` and `DEFAULT_MODEL`.
-
-Do not commit real secrets. The first web release is a private single-workspace preview, not yet a public multi-user product. It does not yet include account registration, billing, persistent server-side chat history, or native mobile apps.
-
-
-### Web app security and automated checks
-
-- Workspace password sign-in is rate-limited to five failed attempts per client address in a 15-minute window.
-- Session cookies are HTTP-only and use the Secure attribute on Render/HTTPS.
-- API responses are marked as non-cacheable and receive baseline browser security headers.
-- GitHub Actions runs the Python test suite on pushes to `main` and pull requests targeting `main`.
-- The sign-in throttle is process-local in this preview; a multi-instance production deployment should move rate limiting to shared storage.
+Crypto-arbitrage is not part of the built-in product scope; users choose their own tools and workflows.

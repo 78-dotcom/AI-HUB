@@ -1,12 +1,12 @@
 services:
   - type: web
     runtime: docker
-    name: ai-hub-web
+    name: AI-HUB
     plan: free
-    region: frankfurt
+    region: oregon
     branch: main
     autoDeploy: true
-    dockerfilePath: ./Dockerfile.web
+    dockerfilePath: ./Dockerfile
     dockerContext: .
     envVars:
       - key: OPENROUTER_API_KEY
