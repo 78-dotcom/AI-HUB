@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -208,11 +208,14 @@ def persist_chat(request: Request, conversation_id: str | None, model_key: str,
             db.flush()
         else:
             row.selected_model = model_key
+        message_time = datetime.now(timezone.utc)
         db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
-            role="user", content=last_user, provider_id=provider_id, model_id=model_id))
+            role="user", content=last_user, provider_id=provider_id, model_id=model_id,
+            created_at=message_time))
         db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
             role="assistant", content=answer, provider_id=provider_id, model_id=model_id,
-            input_tokens=input_tokens or None, output_tokens=output_tokens or None))
+            input_tokens=input_tokens or None, output_tokens=output_tokens or None,
+            created_at=message_time + timedelta(microseconds=1)))
         db.add(UsageEvent(
             id=secrets.token_hex(16), user_id=user["id"], conversation_id=row.id,
             provider_id=provider_id, model_id=model_id,
