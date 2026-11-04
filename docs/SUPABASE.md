@@ -26,21 +26,22 @@ Set these secrets in the web service's environment settings (never commit them):
 - `HUB_SIGNUP_CODE`: a long, random invitation code. Keep registration closed
   until the database is configured and the app is ready for invited testers.
 
-The existing account endpoints become available when both values are present.
-Restart/redeploy the web service after adding them.
+The existing account endpoints become available when both values are present. Account-owned
+chat history is saved to PostgreSQL after each successful model response and loaded
+from the server when the user signs in. Restart/redeploy the web service after adding them.
 
 ## What the initial schema contains
 
 - `users` and `account_sessions`: the existing invitation-only account system.
-- `conversations` and `messages`: server-side chat history, ready for the chat
-  persistence feature.
+- `conversations` and `messages`: server-side chat history, integrated with the web chat.
 - `user_preferences`: language and selected-model preferences.
 - `usage_events`: per-request provider/model/token/cost records for future quotas
   and transparent usage accounting.
 
-The chat, preferences, and usage tables are foundation only; the current web app
-does not yet write to them. Billing/subscriptions are deliberately not included
-until product limits and payment rules are defined.
+The web chat writes conversation and message records for signed-in individual accounts.
+The `user_preferences` and `usage_events` tables are reserved for the next development
+step; billing/subscriptions are deliberately not included until product limits and
+payment rules are defined.
 
 ## Free-tier and migration notes
 
