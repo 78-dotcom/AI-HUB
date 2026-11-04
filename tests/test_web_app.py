@@ -88,6 +88,24 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertNotIn("api_key", payload["models"][0])
         self.assertNotIn("base_url", payload["models"][0])
 
+    def test_provider_text_response_accepts_plain_text(self):
+        payload = {"choices": [{"message": {"content": "  Hello from AI  "}}]}
+        self.assertEqual(web_app._extract_assistant_text(payload), "Hello from AI")
+
+    def test_provider_text_response_accepts_text_content_blocks(self):
+        payload = {"choices": [{"message": {"content": [
+            {"type": "text", "text": "Hello "},
+            {"type": "image_url", "image_url": {"url": "https://example.test/image.png"}},
+            {"type": "output_text", "text": "there"},
+        ]}}]}
+        self.assertEqual(web_app._extract_assistant_text(payload), "Hello there")
+
+    def test_provider_text_response_rejects_empty_or_malformed_payloads(self):
+        for payload in ({}, {"choices": []}, {"choices": [{"message": {"content": []}}]}):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    web_app._extract_assistant_text(payload)
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
