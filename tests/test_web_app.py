@@ -51,6 +51,10 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertTrue(self.client.get("/api/session").json()["authenticated"])
         self.assertEqual(self.client.get("/api/models").status_code, 200)
 
+    def test_conversation_history_requires_individual_account(self):
+        response = self.client.get("/api/conversations")
+        self.assertEqual(response.status_code, 401)
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
