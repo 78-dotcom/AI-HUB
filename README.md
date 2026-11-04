@@ -38,7 +38,9 @@ Do not expose a paid provider key through an unrestricted public deployment. Add
 4. Set the environment variables:
 
    - `HUB_ACCESS_PASSWORD` — password for the private preview.
-   - `HUB_SESSION_SECRET` — long, random secret used to sign legacy preview sessions.\n   - `DATABASE_URL` — optional PostgreSQL URL for individual accounts.\n   - `HUB_SIGNUP_CODE` — private invitation code; registration stays disabled unless this is set.
+   - `HUB_SESSION_SECRET` — long, random secret used to sign legacy preview sessions.
+   - `DATABASE_URL` — optional PostgreSQL URL for individual accounts.
+   - `HUB_SIGNUP_CODE` — private invitation code; registration stays disabled unless this is set.
    - `OPENROUTER_API_KEY` — optional provider key for the default OpenRouter model.
    - `AI_PROVIDERS_JSON=[]` — use the simple OpenRouter setup when its key is present.
    - `OPENROUTER_MODEL` — optional model override; defaults to `openai/gpt-4.1-mini`.
@@ -86,6 +88,8 @@ The repository includes a Render Blueprint in `render.yaml`. It describes the ex
 - `HUB_ACCESS_PASSWORD`
 - `HUB_SESSION_SECRET`
 - `OPENROUTER_API_KEY`
+- `DATABASE_URL` (after a persistent PostgreSQL database is provisioned)
+- `HUB_SIGNUP_CODE` (private invitation code)
 
 Never commit real credentials, `.env` files, or API keys. The web service uses the root `Dockerfile`; the container starts Uvicorn on Render's `PORT`.
 
@@ -96,8 +100,8 @@ The Telegram bot remains an experimental, separate entry point. It is started wi
 ## Product roadmap
 
 1. Stabilize the web foundation, provider configuration, tests, and deployment.
-2. Add individual accounts, secure password recovery, and persistent user data.
-3. Add server-side chat history, usage metering, quotas, and admin controls.
+2. Finish individual accounts and connect a persistent PostgreSQL database.
+3. Add server-side chat history, usage metering, quotas, email verification, password recovery, and admin controls.
 4. Add more provider adapters and model capabilities with transparent pricing.
 5. Add subscriptions and payment processing.
 6. Expand into image, video, audio, research, coding, and agent workflows.
