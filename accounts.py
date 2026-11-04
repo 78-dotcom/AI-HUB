@@ -133,6 +133,22 @@ def _current_user(request: Request):
         return {"id": row.id, "email": row.email} if row else None
 
 
+def account_user(request: Request):
+    if not request.cookies.get(ACCOUNT_COOKIE) or not _database_url():
+        return None
+    return _current_user(request)
+
+
+def revoke_account_session(request: Request, response: Response) -> None:
+    token = request.cookies.get(ACCOUNT_COOKIE, "")
+    if token and _database_url():
+        with _db() as db:
+            db.execute(AccountSession.__table__.delete().where(
+                AccountSession.token_hash == _token_hash(token)
+            ))
+    response.delete_cookie(ACCOUNT_COOKIE, path="/", httponly=True, samesite="lax")
+
+
 @router.get("/status")
 async def account_status() -> dict[str, bool]:
     configured = bool(_database_url())
