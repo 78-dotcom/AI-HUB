@@ -8,6 +8,8 @@ AI HUB is a multilingual workspace for using AI models from multiple providers t
 - FastAPI backend; provider API keys stay on the server.
 - OpenAI-compatible provider adapter, with OpenRouter available as the simple default integration.
 - Server-side model list and model selection.
+- Account preferences sync for language and preferred model.
+- Per-account successful request and provider-reported token usage tracking; cost estimates stay disabled until provider pricing is configured.
 - Password-protected single-workspace access.
 - Signed HTTP-only session cookie, baseline security headers, and process-local login throttling.
 - GitHub Actions runs unit tests and Python compilation checks.
@@ -23,7 +25,7 @@ A portable PostgreSQL schema and Supabase Free setup guide are included. Account
 - Individual account registration and login remain invitation-only and require a PostgreSQL `DATABASE_URL` plus private `HUB_SIGNUP_CODE` in the hosting environment.
 - Account-owned chat history is stored server-side and syncs when the same individual account signs in on another device. The shared-workspace preview still uses browser-local history.
 - Account signup is invitation-only; email verification, password recovery, distributed abuse protection, and admin account management are not implemented yet.
-- No subscriptions, billing, usage metering, or user-level spending limits yet.
+- No subscriptions, billing, provider price catalogue, or user-level spending limits yet. Token usage is recorded, but monetary cost is not guessed.
 - Only OpenAI-compatible chat-completion providers are supported by the current web backend.
 - No native Android or iOS apps yet.
 
