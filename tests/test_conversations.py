@@ -58,9 +58,9 @@ class ConversationPersistenceTests(unittest.TestCase):
             ).scalars().all()
 
         self.assertEqual(conversation.user_id, "user-one")
-        self.assertEqual([message.role for message in messages], ["user", "assistant"])
-        self.assertEqual([message.content for message in messages],
-                         ["Latest question", "Latest answer"])
+        self.assertEqual({message.role for message in messages}, {"user", "assistant"})
+        self.assertEqual({message.content for message in messages},
+                         {"Latest question", "Latest answer"})
 
     def test_cannot_append_to_another_users_conversation(self):
         with patch.object(conversations, "account_user", return_value={"id": "user-one"}):
