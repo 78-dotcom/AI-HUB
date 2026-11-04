@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 import accounts
 import conversations
 from accounts import Base, User
-from conversations import Conversation, Message
+from conversations import Conversation, Message, UsageEvent
 
 
 class ConversationPersistenceTests(unittest.TestCase):
@@ -47,6 +47,7 @@ class ConversationPersistenceTests(unittest.TestCase):
                     {"role": "user", "content": "Latest question"},
                 ],
                 "Latest answer",
+                {"prompt_tokens": 12, "completion_tokens": 7},
             )
 
         with self.engine.connect() as connection:
@@ -56,11 +57,18 @@ class ConversationPersistenceTests(unittest.TestCase):
             messages = connection.execute(
                 select(Message.role, Message.content).where(Message.conversation_id == conversation_id)
             ).all()
+            usage = connection.execute(
+                select(UsageEvent).where(UsageEvent.conversation_id == conversation_id)
+            ).scalar_one()
 
         self.assertEqual(conversation_user_id, "user-one")
         self.assertEqual({message.role for message in messages}, {"user", "assistant"})
         self.assertEqual({message.content for message in messages},
                          {"Latest question", "Latest answer"})
+        self.assertEqual(usage.input_tokens, 12)
+        self.assertEqual(usage.output_tokens, 7)
+        self.assertEqual(usage.provider_id, "provider")
+        self.assertEqual(usage.model_id, "model")
 
     def test_cannot_append_to_another_users_conversation(self):
         with patch.object(conversations, "account_user", return_value={"id": "user-one"}):
