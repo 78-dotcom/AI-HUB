@@ -21,6 +21,8 @@ ACCOUNT_TTL = 60 * 60 * 24 * 14
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _password_hasher = PasswordHasher()
 _engines: dict[str, object] = {}
+_auth_failures: dict[str, list[float]] = {}
+_DUMMY_HASH = _password_hasher.hash("AI-HUB-invalid-account-placeholder")
 router = APIRouter(prefix="/api/auth", tags=["accounts"])
 
 
@@ -96,6 +98,21 @@ def _db() -> Iterator[object]:
         session.close()
 
 
+def _throttle_key(request: Request, action: str, limit: int = 5) -> str:
+    host = request.client.host if request.client else "unknown"
+    key = f"{action}:{host}"
+    now = time.time()
+    recent = [stamp for stamp in _auth_failures.get(key, []) if now - stamp < 900]
+    _auth_failures[key] = recent
+    if len(recent) >= limit:
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait before trying again.")
+    return key
+
+
+def _record_auth_failure(key: str) -> None:
+    _auth_failures.setdefault(key, []).append(time.time())
+
+
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -160,10 +177,12 @@ async def account_status() -> dict[str, bool]:
 
 @router.post("/register")
 async def register(body: RegisterBody, request: Request, response: Response) -> dict[str, object]:
+    attempt_key = _throttle_key(request, "register")
     invite = os.getenv("HUB_SIGNUP_CODE", "").strip()
     if not _database_url() or not invite:
         raise HTTPException(status_code=503, detail="Account registration is not enabled yet.")
     if not secrets.compare_digest(body.invite_code, invite):
+        _record_auth_failure(attempt_key)
         raise HTTPException(status_code=403, detail="Invalid invitation code.")
     email = body.email.strip().lower()
     if not _EMAIL_RE.fullmatch(email):
@@ -174,26 +193,35 @@ async def register(body: RegisterBody, request: Request, response: Response) -> 
             db.add(User(id=user_id, email=email, password_hash=_password_hasher.hash(body.password)))
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="An account with this email already exists.") from exc
+    _auth_failures.pop(attempt_key, None)
     _set_session(response, user_id)
     return {"authenticated": True, "user": {"id": user_id, "email": email}}
 
 
 @router.post("/login")
-async def account_login(body: AccountLoginBody, response: Response) -> dict[str, object]:
+async def account_login(body: AccountLoginBody, request: Request, response: Response) -> dict[str, object]:
+    attempt_key = _throttle_key(request, "login")
     if not _database_url():
         raise HTTPException(status_code=503, detail="Account storage is not configured yet.")
     email = body.email.strip().lower()
     with _db() as db:
         user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
         if not user:
+            try:
+                _password_hasher.verify(_DUMMY_HASH, body.password)
+            except argon2_exceptions.VerificationError:
+                pass
+            _record_auth_failure(attempt_key)
             raise HTTPException(status_code=401, detail="Incorrect email or password.")
         try:
             valid = _password_hasher.verify(user.password_hash, body.password)
         except argon2_exceptions.VerificationError:
             valid = False
         if not valid:
+            _record_auth_failure(attempt_key)
             raise HTTPException(status_code=401, detail="Incorrect email or password.")
         user_id = user.id
+    _auth_failures.pop(attempt_key, None)
     _set_session(response, user_id)
     return {"authenticated": True, "user": {"id": user_id, "email": email}}
 
