@@ -133,6 +133,36 @@ def load_models() -> dict[str, dict[str, Any]]:
     return models
 
 
+def _extract_assistant_text(data: Any) -> str:
+    """Normalize common OpenAI-compatible text response shapes."""
+    if not isinstance(data, dict):
+        raise ValueError("Invalid provider response")
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ValueError("Provider response has no choices")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise ValueError("Provider response has no assistant message")
+    content = message.get("content")
+    if isinstance(content, str):
+        answer = content.strip()
+    elif isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and part.get("type") in {"text", "output_text"}:
+                value = part.get("text")
+                if isinstance(value, str):
+                    text_parts.append(value)
+        answer = "".join(text_parts).strip()
+    else:
+        answer = ""
+    if not answer:
+        raise ValueError("Provider returned no text content")
+    return answer
+
+
 def _session_secret() -> str:
     return os.getenv("HUB_SESSION_SECRET", "").strip()
 
@@ -269,13 +299,11 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
             )
             result.raise_for_status()
             data = result.json()
-        answer = str(data["choices"][0]["message"]["content"]).strip()
-        if not answer:
-            raise ValueError("Empty model response")
+        answer = _extract_assistant_text(data)
         conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
         return {"answer": answer, "conversation_id": conversation_id}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
-    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail="Could not get a response from the AI provider. Please try again.") from exc
