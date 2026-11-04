@@ -106,9 +106,9 @@ def persist_chat(request: Request, conversation_id: str | None, model_key: str,
             db.flush()
         else:
             row.selected_model = model_key
-        for item in messages[-2:]:
-            db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
-                role=item["role"], content=item["content"]))
+        latest_user_message = messages[-1]
+        db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
+            role="user", content=latest_user_message["content"]))
         db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
             role="assistant", content=answer))
         row.updated_at = func.now()
