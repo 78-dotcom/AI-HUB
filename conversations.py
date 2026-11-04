@@ -59,9 +59,24 @@ async def list_conversations(request: Request) -> dict[str, list[dict[str, Any]]
                 Conversation.user_id == user["id"], Conversation.archived_at.is_(None)
             ).order_by(Conversation.updated_at.desc()).limit(100)
         ).scalars().all()
+        if not rows:
+            return {"conversations": []}
+        message_rows = db.execute(
+            select(Message).join(Conversation, Message.conversation_id == Conversation.id)
+            .where(
+                Conversation.user_id == user["id"],
+                Conversation.id.in_([row.id for row in rows]),
+            ).order_by(Message.created_at.asc(), Message.id.asc())
+        ).scalars().all()
+        grouped: dict[str, list[dict[str, str]]] = {row.id: [] for row in rows}
+        for message in message_rows:
+            grouped[message.conversation_id].append({
+                "role": message.role, "content": message.content
+            })
         return {"conversations": [
             {"id": row.id, "title": row.title, "selected_model": row.selected_model,
-             "updated_at": row.updated_at.isoformat() if row.updated_at else None}
+             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+             "messages": grouped[row.id]}
             for row in rows
         ]}
 
