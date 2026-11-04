@@ -39,9 +39,10 @@ from the server when the user signs in. Restart/redeploy the web service after a
   and transparent usage accounting.
 
 The web chat writes conversation and message records for signed-in individual accounts.
-The `user_preferences` and `usage_events` tables are reserved for the next development
-step; billing/subscriptions are deliberately not included until product limits and
-payment rules are defined.
+The app also synchronizes language/model preferences and records provider-reported
+input/output token usage. Monetary cost is deliberately reported as unavailable until
+verified provider pricing is configured. Billing/subscriptions are not included until
+product limits and payment rules are defined.
 
 ## Free-tier and migration notes
 
