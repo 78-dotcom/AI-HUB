@@ -18,7 +18,9 @@ The live Render service currently runs the web app from the repository's `Docker
 
 ## PostgreSQL database foundation
 
-A portable PostgreSQL schema and Supabase Free setup guide are included. Account-owned chat history is wired to PostgreSQL and syncs across sessions once `DATABASE_URL` is configured. Apply `supabase/migrations/20261104140000_initial_schema.sql` in the Supabase SQL Editor and follow [`docs/SUPABASE.md`](docs/SUPABASE.md). The shared-workspace preview still keeps its history in the browser; synced history requires an individual account.
+The Render project includes a provisioned PostgreSQL database named `AI-HUB-DB` in the same Oregon region as the web service. Account-owned chat history, messages, preferences, and usage events are wired to PostgreSQL and sync across sessions once the database's **Internal Database URL** is set as `DATABASE_URL` in the Render service environment.
+
+Follow [the Render PostgreSQL connection checklist](docs/RENDER_POSTGRES.md) to connect the existing database, enable invitation-only registration, and configure an AI provider. The app creates its SQLAlchemy tables on first account-related database access. A portable SQL migration and a Supabase alternative are also included under `supabase/` and [`docs/SUPABASE.md`](docs/SUPABASE.md). The shared-workspace preview still keeps its history in the browser; synced history requires an individual account.
 
 ## Known MVP limitations
 
