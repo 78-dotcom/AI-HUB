@@ -47,7 +47,7 @@ $("password").onkeydown=e=>{if(e.key==="Enter")$("login").click()};
 $("useAccount").onclick=async()=>{$("workspacePanel").hidden=true;$ ("accountPanel").hidden=false;try{const status=await api("/api/auth/status");$("accountRegister").hidden=!status.registration_enabled}catch(e){$("accountError").textContent=e.message}};
 $("useWorkspace").onclick=()=>{$("accountPanel").hidden=true;$ ("workspacePanel").hidden=false};
 $("accountSignIn").onclick=async()=>{try{await api("/api/auth/login",{method:"POST",body:JSON.stringify({email:$("accountEmail").value,password:$("accountPassword").value})});start()}catch(e){$("accountError").textContent=e.message}};
-$("accountRegister").onclick=async()=>{try{await api("/api/auth/register",{method:"POST",body:JSON.stringify({email:$("accountEmail").value,password:$("accountPassword").value,invite_code:$("inviteCode").value})});start()}catch(e){$("accountError").textContent=e.message}};
+$("accountRegister").onclick=async()=>{if($("inviteCode").hidden){$("inviteCode").hidden=false;$("accountRegister").textContent="Create account";$("accountError").textContent="Enter the invitation code provided by the AI HUB administrator.";return}try{await api("/api/auth/register",{method:"POST",body:JSON.stringify({email:$("accountEmail").value,password:$("accountPassword").value,invite_code:$("inviteCode").value})});start()}catch(e){$("accountError").textContent=e.message}};
 start();
 </script>
 </body></html>
