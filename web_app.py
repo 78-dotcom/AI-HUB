@@ -99,12 +99,37 @@ def load_models() -> dict[str, dict[str, Any]]:
         if not pid or not base or not key or not isinstance(entries, list):
             continue
         for item in entries:
-            model = str(item).strip()
-            if model:
-                models[f"{pid}:{model}"] = {
-                    "id": f"{pid}:{model}", "provider": pid, "provider_name": name,
-                    "model": model, "base_url": base, "api_key": key,
-                }
+            metadata = item if isinstance(item, dict) else {}
+            model = str(metadata.get("id", metadata.get("model", "")) if metadata else item).strip()
+            if not model:
+                continue
+            capabilities = metadata.get("capabilities", [])
+            input_modalities = metadata.get("input_modalities", ["text"])
+            output_modalities = metadata.get("output_modalities", ["text"])
+            if not isinstance(capabilities, list):
+                capabilities = []
+            if not isinstance(input_modalities, list):
+                input_modalities = ["text"]
+            if not isinstance(output_modalities, list):
+                output_modalities = ["text"]
+            clean_strings = lambda values: list(dict.fromkeys(
+                str(value).strip().lower() for value in values
+                if isinstance(value, str) and value.strip()
+            ))
+            context_window = metadata.get("context_window")
+            if not isinstance(context_window, int) or isinstance(context_window, bool) or context_window < 1:
+                context_window = None
+            models[f"{pid}:{model}"] = {
+                "id": f"{pid}:{model}", "provider": pid, "provider_name": name,
+                "model": model, "display_name": str(metadata.get("name", model)).strip() or model,
+                "description": str(metadata.get("description", "")).strip()[:300],
+                "category": str(metadata.get("category", "general")).strip().lower() or "general",
+                "capabilities": clean_strings(capabilities),
+                "input_modalities": clean_strings(input_modalities),
+                "output_modalities": clean_strings(output_modalities),
+                "context_window": context_window,
+                "base_url": base, "api_key": key,
+            }
     return models
 
 
@@ -206,7 +231,14 @@ async def models(request: Request) -> dict[str, Any]:
     require_session(request)
     configured = load_models()
     public_models = [
-        {"id": item["id"], "provider": item["provider"], "provider_name": item["provider_name"], "model": item["model"]}
+        {
+            key: item[key]
+            for key in (
+                "id", "provider", "provider_name", "model", "display_name",
+                "description", "category", "capabilities", "input_modalities",
+                "output_modalities", "context_window",
+            )
+        }
         for item in configured.values()
     ]
     return {"models": public_models, "default": os.getenv("DEFAULT_MODEL", "") or (public_models[0]["id"] if public_models else "")}
