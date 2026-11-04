@@ -16,9 +16,9 @@ The live Render service currently runs the web app from the repository's `Docker
 
 ## Known MVP limitations
 
-- One shared workspace password; there is no individual user registration or account management yet.
+- Individual account endpoints and UI are implemented on the feature branch, but they remain unavailable in production until a PostgreSQL `DATABASE_URL` and private `HUB_SIGNUP_CODE` are configured.
 - Chat history is stored in the browser's local storage, not in a server database. It does not sync between devices.
-- Login throttling is process-local and is not suitable as the only abuse control for a multi-instance public service.
+- Account signup is invitation-only; email verification, password recovery, distributed abuse protection, and admin account management are not implemented yet.
 - No subscriptions, billing, usage metering, or user-level spending limits yet.
 - Only OpenAI-compatible chat-completion providers are supported by the current web backend.
 - No native Android or iOS apps yet.
@@ -38,7 +38,7 @@ Do not expose a paid provider key through an unrestricted public deployment. Add
 4. Set the environment variables:
 
    - `HUB_ACCESS_PASSWORD` — password for the private preview.
-   - `HUB_SESSION_SECRET` — long, random secret used to sign sessions.
+   - `HUB_SESSION_SECRET` — long, random secret used to sign legacy preview sessions.\n   - `DATABASE_URL` — optional PostgreSQL URL for individual accounts.\n   - `HUB_SIGNUP_CODE` — private invitation code; registration stays disabled unless this is set.
    - `OPENROUTER_API_KEY` — optional provider key for the default OpenRouter model.
    - `AI_PROVIDERS_JSON=[]` — use the simple OpenRouter setup when its key is present.
    - `OPENROUTER_MODEL` — optional model override; defaults to `openai/gpt-4.1-mini`.
