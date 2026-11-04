@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from accounts import account_user, revoke_account_session, router as accounts_router
+from conversations import persist_chat, router as conversations_router
 
 load_dotenv()
 
@@ -32,6 +33,7 @@ _login_failures: dict[str, list[float]] = {}
 
 app = FastAPI(title="AI HUB", version="0.2.0")
 app.include_router(accounts_router)
+app.include_router(conversations_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
@@ -147,6 +149,7 @@ class LoginBody(BaseModel):
 class ChatBody(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     messages: list[dict[str, str]] = Field(min_length=1, max_length=MAX_HISTORY)
+    conversation_id: str | None = Field(default=None, max_length=36)
 
 
 @app.get("/")
@@ -237,7 +240,8 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
         answer = str(data["choices"][0]["message"]["content"]).strip()
         if not answer:
             raise ValueError("Empty model response")
-        return {"answer": answer}
+        conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer)
+        return {"answer": answer, "conversation_id": conversation_id}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
