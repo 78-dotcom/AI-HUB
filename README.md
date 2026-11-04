@@ -20,8 +20,8 @@ A portable PostgreSQL schema and Supabase Free setup guide are included. Account
 
 ## Known MVP limitations
 
-- Individual account endpoints and UI are implemented on the feature branch, but they remain unavailable in production until a PostgreSQL `DATABASE_URL` and private `HUB_SIGNUP_CODE` are configured.
-- Chat history is stored in the browser's local storage, not in a server database. It does not sync between devices.
+- Individual account registration and login remain invitation-only and require a PostgreSQL `DATABASE_URL` plus private `HUB_SIGNUP_CODE` in the hosting environment.
+- Account-owned chat history is stored server-side and syncs when the same individual account signs in on another device. The shared-workspace preview still uses browser-local history.
 - Account signup is invitation-only; email verification, password recovery, distributed abuse protection, and admin account management are not implemented yet.
 - No subscriptions, billing, usage metering, or user-level spending limits yet.
 - Only OpenAI-compatible chat-completion providers are supported by the current web backend.
@@ -104,8 +104,8 @@ The Telegram bot remains an experimental, separate entry point. It is started wi
 ## Product roadmap
 
 1. Stabilize the web foundation, provider configuration, tests, and deployment.
-2. Finish individual accounts and connect a persistent PostgreSQL database.
-3. Add server-side chat history, usage metering, quotas, email verification, password recovery, and admin controls.
+2. Provision PostgreSQL and enable individual accounts in the deployed environment.
+3. Add usage metering, quotas, email verification, password recovery, and admin controls.
 4. Add more provider adapters and model capabilities with transparent pricing.
 5. Add subscriptions and payment processing.
 6. Expand into image, video, audio, research, coding, and agent workflows.
