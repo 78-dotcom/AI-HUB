@@ -17,6 +17,7 @@ class AccountApiTests(unittest.TestCase):
         }, clear=False)
         self.env.start()
         accounts._engines.clear()
+        accounts._auth_failures.clear()
         self.client = TestClient(web_app.app)
 
     def tearDown(self):
@@ -24,6 +25,7 @@ class AccountApiTests(unittest.TestCase):
         for engine in accounts._engines.values():
             engine.dispose()
         accounts._engines.clear()
+        accounts._auth_failures.clear()
         self.env.stop()
 
     def register(self, email="person@example.com"):
@@ -38,6 +40,8 @@ class AccountApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user"]["email"], "person@example.com")
         self.assertTrue(self.client.get("/api/auth/me").json()["authenticated"])
+        self.assertEqual(self.client.get("/api/session").json()["authenticated"], True)
+        self.assertEqual(self.client.get("/api/models").status_code, 200)
 
     def test_duplicate_email_is_rejected(self):
         self.assertEqual(self.register().status_code, 200)
@@ -71,6 +75,19 @@ class AccountApiTests(unittest.TestCase):
             "invite_code": "test-invite-code",
         })
         self.assertEqual(response.status_code, 422)
+
+    def test_account_login_is_rate_limited(self):
+        for _ in range(5):
+            response = self.client.post("/api/auth/login", json={
+                "email": "missing@example.com",
+                "password": "incorrect-password",
+            })
+            self.assertEqual(response.status_code, 401)
+        blocked = self.client.post("/api/auth/login", json={
+            "email": "missing@example.com",
+            "password": "incorrect-password",
+        })
+        self.assertEqual(blocked.status_code, 429)
 
 
 if __name__ == "__main__":
