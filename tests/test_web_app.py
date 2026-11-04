@@ -55,6 +55,39 @@ class WebAppAccessTests(unittest.TestCase):
         response = self.client.get("/api/conversations")
         self.assertEqual(response.status_code, 401)
 
+    def test_model_catalog_supports_legacy_and_rich_entries(self):
+        config = [{
+            "id": "sample", "name": "Sample Provider",
+            "base_url": "https://api.example.test/v1", "api_key": "secret",
+            "models": [
+                "legacy-model",
+                {
+                    "id": "vision-model", "name": "Vision Model",
+                    "description": "Understands images", "category": "vision",
+                    "capabilities": ["chat", "vision", "chat"],
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"], "context_window": 128000,
+                },
+            ],
+        }]
+        with patch.dict(os.environ, {"AI_PROVIDERS_JSON": __import__("json").dumps(config)}, clear=False):
+            models = web_app.load_models()
+        self.assertEqual(models["sample:legacy-model"]["input_modalities"], ["text"])
+        rich = models["sample:vision-model"]
+        self.assertEqual(rich["display_name"], "Vision Model")
+        self.assertEqual(rich["capabilities"], ["chat", "vision"])
+        self.assertEqual(rich["context_window"], 128000)
+        self.assertEqual(rich["api_key"], "secret")
+
+    def test_model_catalog_does_not_expose_provider_credentials(self):
+        self.login()
+        response = self.client.get("/api/models")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["models"])
+        self.assertNotIn("api_key", payload["models"][0])
+        self.assertNotIn("base_url", payload["models"][0])
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
