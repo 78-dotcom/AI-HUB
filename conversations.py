@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import DateTime, ForeignKey, String, Text, select, func
+from sqlalchemy import DateTime, ForeignKey, JSON, Numeric, String, Text, select, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from accounts import Base, _db, account_user
 
-router = APIRouter(prefix="/api/conversations", tags=["conversations"])
+router = APIRouter(prefix="/api", tags=["account data"])
 
 
 class Conversation(Base):
@@ -38,19 +39,43 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CreateConversation(BaseModel):
-    title: str = Field(default="New chat", min_length=1, max_length=200)
-    selected_model: str | None = Field(default=None, max_length=200)
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    language: Mapped[str] = mapped_column(String(12), default="en")
+    preferred_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    preferences_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    provider_id: Mapped[str] = mapped_column(String(100))
+    model_id: Mapped[str] = mapped_column(String(200))
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(Numeric(14, 8), default=Decimal("0"))
+    request_status: Mapped[str] = mapped_column(String(24), default="succeeded")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PreferencesUpdate(BaseModel):
+    language: str = Field(default="en", pattern="^(en|ru)$")
+    preferred_model: str | None = Field(default=None, max_length=200)
+    preferences: dict[str, Any] = Field(default_factory=dict)
 
 
 def _require_account(request: Request) -> dict[str, str]:
     user = account_user(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Sign in with an individual AI HUB account to sync chat history.")
+        raise HTTPException(status_code=401, detail="Sign in with an individual AI HUB account to sync your data.")
     return user
 
 
-@router.get("")
+@router.get("/conversations")
 async def list_conversations(request: Request) -> dict[str, list[dict[str, Any]]]:
     user = _require_account(request)
     with _db() as db:
@@ -81,7 +106,7 @@ async def list_conversations(request: Request) -> dict[str, list[dict[str, Any]]
         ]}
 
 
-@router.get("/{conversation_id}")
+@router.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     user = _require_account(request)
     with _db() as db:
@@ -99,12 +124,74 @@ async def get_conversation(conversation_id: str, request: Request) -> dict[str, 
             "messages": [{"role": m.role, "content": m.content} for m in messages]}}
 
 
+@router.get("/preferences")
+async def get_preferences(request: Request) -> dict[str, Any]:
+    user = _require_account(request)
+    with _db() as db:
+        row = db.get(UserPreference, user["id"])
+        if not row:
+            return {"language": "en", "preferred_model": None, "preferences": {}}
+        return {"language": row.language, "preferred_model": row.preferred_model,
+                "preferences": row.preferences_json or {}}
+
+
+@router.put("/preferences")
+async def update_preferences(body: PreferencesUpdate, request: Request) -> dict[str, Any]:
+    user = _require_account(request)
+    with _db() as db:
+        row = db.get(UserPreference, user["id"])
+        if row is None:
+            row = UserPreference(user_id=user["id"])
+            db.add(row)
+        row.language = body.language
+        row.preferred_model = body.preferred_model
+        row.preferences_json = body.preferences
+        row.updated_at = func.now()
+        return {"language": row.language, "preferred_model": row.preferred_model,
+                "preferences": row.preferences_json}
+
+
+@router.get("/usage")
+async def get_usage(request: Request) -> dict[str, Any]:
+    user = _require_account(request)
+    with _db() as db:
+        rows = db.execute(
+            select(
+                func.count(UsageEvent.id),
+                func.coalesce(func.sum(UsageEvent.input_tokens), 0),
+                func.coalesce(func.sum(UsageEvent.output_tokens), 0),
+            ).where(UsageEvent.user_id == user["id"], UsageEvent.request_status == "succeeded")
+        ).one()
+        recent = db.execute(
+            select(UsageEvent).where(UsageEvent.user_id == user["id"])
+            .order_by(UsageEvent.created_at.desc()).limit(20)
+        ).scalars().all()
+        return {
+            "requests": int(rows[0] or 0),
+            "input_tokens": int(rows[1] or 0),
+            "output_tokens": int(rows[2] or 0),
+            "estimated_cost_usd": None,
+            "cost_note": "Provider pricing is not yet configured; costs are not estimated.",
+            "recent": [{
+                "provider": event.provider_id, "model": event.model_id,
+                "input_tokens": event.input_tokens, "output_tokens": event.output_tokens,
+                "status": event.request_status,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            } for event in recent],
+        }
+
+
 def persist_chat(request: Request, conversation_id: str | None, model_key: str,
-                 messages: list[dict[str, str]], answer: str) -> str | None:
+                 messages: list[dict[str, str]], answer: str,
+                 usage: dict[str, Any] | None = None) -> str | None:
     user = account_user(request)
     if not user:
         return None
     last_user = messages[-1]["content"]
+    provider_id, _, model_id = model_key.partition(":")
+    usage = usage or {}
+    input_tokens = max(0, int(usage.get("prompt_tokens") or 0))
+    output_tokens = max(0, int(usage.get("completion_tokens") or 0))
     with _db() as db:
         row = None
         if conversation_id:
@@ -121,10 +208,16 @@ def persist_chat(request: Request, conversation_id: str | None, model_key: str,
             db.flush()
         else:
             row.selected_model = model_key
-        latest_user_message = messages[-1]
         db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
-            role="user", content=latest_user_message["content"]))
+            role="user", content=last_user, provider_id=provider_id, model_id=model_id))
         db.add(Message(id=secrets.token_hex(16), conversation_id=row.id,
-            role="assistant", content=answer))
+            role="assistant", content=answer, provider_id=provider_id, model_id=model_id,
+            input_tokens=input_tokens or None, output_tokens=output_tokens or None))
+        db.add(UsageEvent(
+            id=secrets.token_hex(16), user_id=user["id"], conversation_id=row.id,
+            provider_id=provider_id, model_id=model_id,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            estimated_cost_usd=Decimal("0"), request_status="succeeded",
+        ))
         row.updated_at = func.now()
         return row.id
