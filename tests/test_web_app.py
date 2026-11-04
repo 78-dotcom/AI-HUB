@@ -24,6 +24,12 @@ class WebAppAccessTests(unittest.TestCase):
         self.env.stop()
         web_app._login_failures.clear()
 
+    def login(self):
+        return self.client.post(
+            "/api/login",
+            json={"password": "correct-horse-battery"},
+        )
+
     def test_health_endpoint_and_security_headers(self):
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
@@ -37,7 +43,7 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_successful_login_sets_http_only_session_cookie(self):
-        response = self.client.post("/api/login", json={"password": "correct-horse-battery"})
+        response = self.login()
         self.assertEqual(response.status_code, 200)
         cookie = response.headers["set-cookie"].lower()
         self.assertIn("httponly", cookie)
@@ -45,11 +51,30 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertTrue(self.client.get("/api/session").json()["authenticated"])
         self.assertEqual(self.client.get("/api/models").status_code, 200)
 
+    def test_chat_requires_authentication(self):
+        response = self.client.post(
+            "/api/chat",
+            json={"model": "openrouter:openai/gpt-4.1-mini", "messages": [
+                {"role": "user", "content": "Hello"}
+            ]},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_chat_rejects_unconfigured_model(self):
+        self.login()
+        response = self.client.post(
+            "/api/chat",
+            json={"model": "missing:model", "messages": [
+                {"role": "user", "content": "Hello"}
+            ]},
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_login_is_rate_limited_after_five_failures(self):
         for _ in range(web_app.LOGIN_MAX_FAILURES):
             response = self.client.post("/api/login", json={"password": "wrong"})
             self.assertEqual(response.status_code, 401)
-        blocked = self.client.post("/api/login", json={"password": "correct-horse-battery"})
+        blocked = self.login()
         self.assertEqual(blocked.status_code, 429)
         self.assertIn("retry-after", blocked.headers)
 
