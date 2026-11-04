@@ -11,7 +11,10 @@
 </style>
 </head>
 <body>
-<div id="app"><div class="login-screen"><div class="login-card"><div class="brand"><span class="mark">✳</span> AI HUB</div><h2>One space. Many minds.</h2><p>Your personal workspace for the AI models you choose.</p><input id="password" type="password" placeholder="Workspace password" autocomplete="current-password"><button class="send" id="login">Continue</button><div class="error" id="loginError"></div></div></div></div>
+<div id="app"><div class="login-screen"><div class="login-card"><div class="brand"><span class="mark">✳</span> AI HUB</div>
+<div id="workspacePanel"><h2>One space. Many minds.</h2><p>Your personal workspace for the AI models you choose.</p><input id="password" type="password" placeholder="Workspace password" autocomplete="current-password"><button class="send" id="login">Continue</button><div class="error" id="loginError"></div><button class="ghost" id="useAccount" style="width:100%;margin-top:14px">Sign in with an account</button></div>
+<div id="accountPanel" hidden><h2>Welcome back</h2><p>Sign in with your AI HUB account.</p><input id="accountEmail" type="email" placeholder="Email address" autocomplete="email"><input id="accountPassword" type="password" placeholder="Password (12+ characters)" autocomplete="current-password" style="margin-top:10px"><input id="inviteCode" type="password" placeholder="Invitation code" autocomplete="off" hidden style="margin-top:10px"><button class="send" id="accountSignIn">Sign in</button><button class="ghost" id="accountRegister" style="width:100%;margin-top:10px" hidden>Create account with invitation</button><div class="error" id="accountError"></div><button class="ghost" id="useWorkspace" style="width:100%;margin-top:8px">Use workspace password instead</button></div>
+</div></div></div>
 <script>
 const copy={
 en:{title:"Your AI workspace",welcome:"What would you like to explore?",sub:"Choose a model and start a conversation. Your workspace, your choice.",ideas:[["Write something","Draft an email, post or story"],["Understand a topic","Explain a complex idea simply"],["Build an idea","Turn a rough thought into a plan"],["Solve a problem","Think through a challenge step by step"]],placeholder:"Message AI HUB…",send:"Send",new:"New chat",recent:"Recent",empty:"No conversations yet",thinking:"Thinking…",failed:"Something went wrong. Please try again.",locked:"Sign in to your private AI HUB workspace.",noModels:"No AI models are configured yet. Add your provider API key in Render.",disclaimer:"AI can make mistakes. Check important information.",model:"Choose a model",logout:"Sign out"},
@@ -41,6 +44,10 @@ async function logout(){try{await api("/api/logout",{method:"POST",body:"{}"})}c
 async function start(){try{const state=await api("/api/session");if(!state.authenticated)return;threads=JSON.parse(localStorage.getItem("aihub-threads")||"[]");const data=await api("/api/models");models=data.models||[];selected=data.default||models[0]?.id||"";render()}catch(e){$("loginError").textContent=e.message}}
 $("login").onclick=async()=>{try{await api("/api/login",{method:"POST",body:JSON.stringify({password:$("password").value})});start()}catch(e){$("loginError").textContent=e.message}};
 $("password").onkeydown=e=>{if(e.key==="Enter")$("login").click()};
+$("useAccount").onclick=async()=>{$("workspacePanel").hidden=true;$ ("accountPanel").hidden=false;try{const status=await api("/api/auth/status");$("accountRegister").hidden=!status.registration_enabled}catch(e){$("accountError").textContent=e.message}};
+$("useWorkspace").onclick=()=>{$("accountPanel").hidden=true;$ ("workspacePanel").hidden=false};
+$("accountSignIn").onclick=async()=>{try{await api("/api/auth/login",{method:"POST",body:JSON.stringify({email:$("accountEmail").value,password:$("accountPassword").value})});start()}catch(e){$("accountError").textContent=e.message}};
+$("accountRegister").onclick=async()=>{try{await api("/api/auth/register",{method:"POST",body:JSON.stringify({email:$("accountEmail").value,password:$("accountPassword").value,invite_code:$("inviteCode").value})});start()}catch(e){$("accountError").textContent=e.message}};
 start();
 </script>
 </body></html>
