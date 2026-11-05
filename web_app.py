@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from accounts import account_user, revoke_account_session, router as accounts_router
 from conversations import persist_chat, router as conversations_router
+from intelligence import public_routing_payload, select_model
 
 load_dotenv()
 
@@ -207,6 +208,11 @@ class ChatBody(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=36)
 
 
+class RoutingBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=MAX_TEXT)
+    preferred_model: str | None = Field(default=None, max_length=200)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
@@ -272,6 +278,15 @@ async def models(request: Request) -> dict[str, Any]:
         for item in configured.values()
     ]
     return {"models": public_models, "default": os.getenv("DEFAULT_MODEL", "") or (public_models[0]["id"] if public_models else "")}
+
+
+@app.post("/api/intelligence/route")
+async def intelligence_route(body: RoutingBody, request: Request) -> dict[str, Any]:
+    """Recommend a configured model for a task without executing a provider call."""
+    require_session(request)
+    configured = load_models()
+    decision = select_model(configured, body.prompt, body.preferred_model)
+    return public_routing_payload(decision, configured)
 
 
 @app.post("/api/chat")
