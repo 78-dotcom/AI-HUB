@@ -12,10 +12,11 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func, select
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
-from accounts import Base, _db, account_user
+from accounts import Base, User, _db, account_user
 
 router = APIRouter(prefix="/api/credits", tags=["HUB Credits"])
 
@@ -57,24 +58,41 @@ def record_credit_entry(
     if event_type in {"reservation", "settlement"} and amount > 0:
         raise ValueError("This event type must deduct credits.")
     entry_id = secrets.token_hex(16)
-    with _db() as db:
-        existing = db.execute(select(CreditLedgerEntry).where(
-            CreditLedgerEntry.user_id == user_id,
-            CreditLedgerEntry.idempotency_key == idempotency_key,
-        )).scalar_one_or_none()
-        if existing:
-            return existing.id
-        balance = db.execute(select(func.coalesce(func.sum(CreditLedgerEntry.delta_credits), 0)).where(
-            CreditLedgerEntry.user_id == user_id
-        )).scalar_one()
-        if Decimal(balance or 0) + amount < 0:
-            raise ValueError("Insufficient HUB Credits.")
-        db.add(CreditLedgerEntry(
-            id=entry_id, user_id=user_id, idempotency_key=idempotency_key,
-            event_type=event_type, delta_credits=amount,
-            reference_id=reference_id, description=description[:240],
-        ))
-    return entry_id
+    try:
+        with _db() as db:
+            # Serialize postings per account on PostgreSQL so concurrent requests
+            # cannot both spend the same available balance.
+            owner = db.execute(select(User.id).where(User.id == user_id).with_for_update()).scalar_one_or_none()
+            if owner is None:
+                raise ValueError("HUB Credits account does not exist.")
+            existing = db.execute(select(CreditLedgerEntry).where(
+                CreditLedgerEntry.user_id == user_id,
+                CreditLedgerEntry.idempotency_key == idempotency_key,
+            )).scalar_one_or_none()
+            if existing:
+                return existing.id
+            balance = db.execute(select(func.coalesce(func.sum(CreditLedgerEntry.delta_credits), 0)).where(
+                CreditLedgerEntry.user_id == user_id
+            )).scalar_one()
+            if Decimal(balance or 0) + amount < 0:
+                raise ValueError("Insufficient HUB Credits.")
+            db.add(CreditLedgerEntry(
+                id=entry_id, user_id=user_id, idempotency_key=idempotency_key,
+                event_type=event_type, delta_credits=amount,
+                reference_id=reference_id, description=description[:240],
+            ))
+        return entry_id
+    except IntegrityError:
+        # A concurrent duplicate webhook may win the unique-key race. Resolve it
+        # by returning the already-posted row, never by adding a second credit.
+        with _db() as db:
+            existing = db.execute(select(CreditLedgerEntry).where(
+                CreditLedgerEntry.user_id == user_id,
+                CreditLedgerEntry.idempotency_key == idempotency_key,
+            )).scalar_one_or_none()
+            if existing:
+                return existing.id
+        raise
 
 
 def _account(request: Request) -> dict[str, str]:
