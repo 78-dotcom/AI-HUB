@@ -9,23 +9,90 @@ import binascii
 import csv
 import io
 import json
+import zipfile
 from pathlib import PurePosixPath
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 24_000
-SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".json"}
+SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".json", ".docx", ".xlsx"}
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = 2_000
+MAX_SPREADSHEET_ROWS = 20_000
+MAX_SPREADSHEET_COLUMNS = 200
 
 
 class DocumentError(ValueError):
     """A document is invalid, unsupported, or exceeds a configured limit."""
 
 
+
+def _validate_office_archive(raw: bytes, required_member: str) -> None:
+    """Reject malformed, encrypted, or suspiciously large Office ZIP containers."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_ARCHIVE_ENTRIES:
+                raise DocumentError("The Office document contains too many internal files.")
+            if any(entry.flag_bits & 0x1 for entry in entries):
+                raise DocumentError("Encrypted Office documents are not supported.")
+            if sum(entry.file_size for entry in entries) > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                raise DocumentError("The expanded Office document exceeds the 32 MB safety limit.")
+            if required_member not in archive.namelist():
+                raise DocumentError("The file is not a valid supported Office document.")
+    except DocumentError:
+        raise
+    except (zipfile.BadZipFile, OSError, ValueError) as exc:
+        raise DocumentError("The Office document is damaged or invalid.") from exc
+
+
+def _extract_docx(raw: bytes) -> str:
+    _validate_office_archive(raw, "word/document.xml")
+    try:
+        from docx import Document
+        document = Document(io.BytesIO(raw))
+        parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+        for table in document.tables:
+            for row in table.rows:
+                parts.append(" | ".join(cell.text.replace("\\n", " ").strip() for cell in row.cells))
+        return "\\n".join(parts)
+    except DocumentError:
+        raise
+    except Exception as exc:
+        raise DocumentError("The Word document could not be read.") from exc
+
+
+def _extract_xlsx(raw: bytes) -> str:
+    _validate_office_archive(raw, "xl/workbook.xml")
+    workbook = None
+    try:
+        from openpyxl import load_workbook
+        workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        parts = []
+        for sheet in workbook.worksheets:
+            parts.append(f"[Sheet: {sheet.title}]")
+            for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_number > MAX_SPREADSHEET_ROWS:
+                    raise DocumentError("A worksheet exceeds the 20,000-row extraction limit.")
+                values = ["" if value is None else str(value) for value in row[:MAX_SPREADSHEET_COLUMNS]]
+                if any(values):
+                    parts.append(" | ".join(values))
+                if sum(len(part) for part in parts) > MAX_EXTRACTED_CHARS * 2:
+                    break
+        return "\\n".join(parts)
+    except DocumentError:
+        raise
+    except Exception as exc:
+        raise DocumentError("The Excel workbook could not be read.") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
+
 def extract_document(filename: str, content_base64: str) -> dict[str, object]:
     """Decode a bounded base64 upload and extract supported text in memory."""
     safe_name = PurePosixPath((filename or "").replace("\\", "/")).name
     suffix = PurePosixPath(safe_name).suffix.lower()
     if not safe_name or suffix not in SUPPORTED_EXTENSIONS:
-        raise DocumentError("Supported formats: PDF, TXT, Markdown, CSV and JSON.")
+        raise DocumentError("Supported formats: PDF, DOCX, XLSX, TXT, Markdown, CSV and JSON.")
     if not isinstance(content_base64, str) or not content_base64:
         raise DocumentError("The uploaded file is empty.")
     # Reject oversized encoded input before allocating the decoded buffer.
@@ -40,7 +107,13 @@ def extract_document(filename: str, content_base64: str) -> dict[str, object]:
     if len(raw) > MAX_UPLOAD_BYTES:
         raise DocumentError("The file exceeds the 8 MB upload limit.")
 
-    if suffix == ".pdf":
+    if suffix == ".docx":
+        text = _extract_docx(raw)
+        page_count = None
+    elif suffix == ".xlsx":
+        text = _extract_xlsx(raw)
+        page_count = None
+    elif suffix == ".pdf":
         if not raw.startswith(b"%PDF-"):
             raise DocumentError("The file extension does not match a valid PDF document.")
         try:
