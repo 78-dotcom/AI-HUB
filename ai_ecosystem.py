@@ -146,7 +146,7 @@ async def reality_check(body: RealityCheckBody, request: Request) -> dict[str, A
     answer, _ = await _call(lead, [
         {"role": "system", "content": "Answer carefully. Mark uncertainty and do not invent citations."},
         {"role": "user", "content": body.prompt + refs},
-    ])
+    ], MAX_OUTPUT_TOKENS_PER_MODEL)
     audit_prompt = (
         "Audit the answer claim by claim. Return sections: SUPPORTED BY PROVIDED MATERIAL, "
         "UNSUPPORTED/UNCERTAIN, CONTRADICTIONS, MISSING CONTEXT, SAFER REWRITE. "
@@ -179,8 +179,8 @@ async def marketplace_list(request: Request) -> dict[str, Any]:
 @router.post("/marketplace/assistants")
 async def marketplace_create(body: AssistantCreateBody, request: Request) -> dict[str, Any]:
     account = _account(request)
-    if body.model_id and body.model_id not in _models():
-        raise HTTPException(status_code=400, detail="The selected model is not configured.")
+    if body.model_id and (body.model_id not in _models() or "text" not in _models()[body.model_id].get("input_modalities", ["text"])):
+        raise HTTPException(status_code=400, detail="The selected text model is not configured.")
     row = MarketplaceAssistant(id=secrets.token_urlsafe(18), owner_id=account["id"],
         name=body.name.strip(), description=body.description.strip(),
         instructions=body.instructions.strip(), model_id=body.model_id, is_public=body.is_public)
@@ -248,8 +248,8 @@ async def marketplace_run(assistant_id: str, body: AssistantRunBody, request: Re
         decision = select_model(models, body.prompt)
         model_id = decision.model_id if decision else None
     model = models.get(model_id or "")
-    if not model:
-        raise HTTPException(status_code=503, detail="Configure an AI model before running this assistant.")
+    if not model or "text" not in model.get("input_modalities", ["text"]):
+        raise HTTPException(status_code=503, detail="Configure a compatible text model before running this assistant.")
     answer, _ = await _call(model, [
         {"role": "system", "content": instructions},
         {"role": "user", "content": body.prompt},
