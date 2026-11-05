@@ -5,6 +5,8 @@ import zipfile
 
 from docx import Document
 from openpyxl import Workbook
+from unittest.mock import patch
+import fitz
 
 from file_analysis import DocumentError, MAX_UPLOAD_BYTES, extract_document
 
