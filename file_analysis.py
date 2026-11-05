@@ -53,8 +53,8 @@ def _extract_docx(raw: bytes) -> str:
         parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
         for table in document.tables:
             for row in table.rows:
-                parts.append(" | ".join(cell.text.replace("\\n", " ").strip() for cell in row.cells))
-        return "\\n".join(parts)
+                parts.append(" | ".join(cell.text.replace("\n", " ").strip() for cell in row.cells))
+        return "\n".join(parts)
     except DocumentError:
         raise
     except Exception as exc:
@@ -78,7 +78,7 @@ def _extract_xlsx(raw: bytes) -> str:
                     parts.append(" | ".join(values))
                 if sum(len(part) for part in parts) > MAX_EXTRACTED_CHARS * 2:
                     break
-        return "\\n".join(parts)
+        return "\n".join(parts)
     except DocumentError:
         raise
     except Exception as exc:
