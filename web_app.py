@@ -343,6 +343,7 @@ async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
 
     lead_usage = None
     critic_usage = None
+    lead_completed = False
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(55.0, connect=15.0)) as client:
             lead_response = await client.post(
@@ -362,6 +363,7 @@ async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
             lead_data = lead_response.json()
             proposed_answer = _extract_assistant_text(lead_data)
             lead_usage = lead_data.get("usage")
+            lead_completed = True
 
             critic_response = await client.post(
                 f'{critic["base_url"]}/chat/completions',
@@ -382,7 +384,7 @@ async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
             critic_usage = critic_data.get("usage")
         critic_available = True
     except httpx.HTTPStatusError as exc:
-        if lead_usage is None:
+        if not lead_completed:
             raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
         critique = "The critic model was unavailable. The proposed answer is shown without independent review."
         critic_available = False
