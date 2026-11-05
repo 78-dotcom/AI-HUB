@@ -35,7 +35,7 @@ Example request:
 - Only unique HTTPS results with a title and excerpt are passed to the model.
 - Search excerpts and URLs are untrusted input. The model is instructed to ignore embedded instructions and cite source IDs (`[S1]`, `[S2]`, …).
 - The UI displays the original result links and snippets alongside the AI synthesis.
-- The current version uses search-result excerpts, not full-page crawling. It does **not** claim that full pages were opened or independently verified. Users should check original pages for high-impact decisions.
+- The current version uses Brave LLM Context pre-extracted page chunks and source metadata rather than fetching arbitrary URLs itself. It does not independently establish that claims are true; users should check original pages for high-impact decisions.
 - Search-provider errors and missing configuration return generic messages; credentials and raw provider responses are not returned.
 - Provider search charges/quotas depend on the user's Brave plan. AI model usage may incur separate provider charges.
 
