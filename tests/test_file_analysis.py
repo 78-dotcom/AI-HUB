@@ -87,5 +87,15 @@ class DocumentExtractionTests(unittest.TestCase):
             extract_document("fake.docx", encoded(output.getvalue()))
 
 
+    def test_ocr_is_used_for_scanned_pdf_when_text_layer_is_empty(self):
+        pdf = fitz.open()
+        pdf.new_page(width=300, height=400)
+        raw_pdf = pdf.tobytes()
+        pdf.close()
+        with patch("pytesseract.image_to_string", return_value="Scanned invoice total 1250"):
+            result = extract_document("scan.pdf", encoded(raw_pdf))
+        self.assertIn("Scanned invoice total 1250", result["text"])
+        self.assertTrue(result["ocr_used"])
+
 if __name__ == "__main__":
     unittest.main()
