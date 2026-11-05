@@ -63,10 +63,10 @@ class HubCreditsLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported"):
             wallet.record_credit_entry("user-one", "unknown", "transfer", Decimal("10"))
 
-    def test_duplicate_reservation_does_not_double_deduct(self):
+    def test_duplicate_spend_does_not_double_deduct(self):
         wallet.record_credit_entry("user-one", "purchase", "purchase", Decimal("100"))
-        first = wallet.record_credit_entry("user-one", "reserve-1", "reservation", Decimal("-30"))
-        second = wallet.record_credit_entry("user-one", "reserve-1", "reservation", Decimal("-30"))
+        first = wallet.record_credit_entry("user-one", "spend-1", "spend", Decimal("-30"))
+        second = wallet.record_credit_entry("user-one", "spend-1", "spend", Decimal("-30"))
         self.assertEqual(first, second)
         self.assertEqual(self.client.get("/api/credits/balance").json()["balance"], "70.0000")
 
