@@ -39,8 +39,11 @@ def normalize_search_results(payload: dict[str, Any], limit: int = 8) -> list[di
         if not isinstance(item, dict):
             continue
         url = str(item.get("url") or "").strip()
-        parsed = urlsplit(url)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                continue
+        except ValueError:
             continue
         if url in seen:
             continue
