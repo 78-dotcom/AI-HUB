@@ -14,9 +14,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text as sql_text
 from pydantic import BaseModel, Field
 
-from accounts import account_user, revoke_account_session, router as accounts_router
+from accounts import _database_url, _engine, account_user, revoke_account_session, router as accounts_router
 from conversations import persist_chat, router as conversations_router
 from intelligence import public_routing_payload, select_model
 from future_lab import build_scenarios
@@ -243,6 +244,44 @@ async def index() -> FileResponse:
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "app": "AI HUB"}
+
+
+
+@app.get("/api/health/ready")
+async def readiness() -> dict[str, Any]:
+    """Report database readiness without creating tables or exposing connection details."""
+    if not _database_url():
+        return {
+            "status": "degraded",
+            "database_configured": False,
+            "database_reachable": False,
+            "missing_tables": [],
+        }
+    try:
+        engine = _engine()
+        with engine.connect() as connection:
+            connection.execute(sql_text("SELECT 1"))
+            existing_tables = set(inspect(connection).get_table_names())
+        required_tables = {
+            "users", "account_sessions", "conversations", "messages",
+            "user_preferences", "usage_events", "project_memory_entries",
+            "credit_ledger_entries",
+        }
+        missing_tables = sorted(required_tables - existing_tables)
+        return {
+            "status": "ok" if not missing_tables else "degraded",
+            "database_configured": True,
+            "database_reachable": True,
+            "missing_tables": missing_tables,
+        }
+    except Exception:
+        # Never return exception text: drivers may include hostnames or credentials.
+        return {
+            "status": "degraded",
+            "database_configured": True,
+            "database_reachable": False,
+            "missing_tables": [],
+        }
 
 
 @app.get("/api/session")
