@@ -21,6 +21,7 @@ from conversations import persist_chat, router as conversations_router
 from intelligence import public_routing_payload, select_model
 from future_lab import build_scenarios
 from project_memory import router as project_memory_router
+from wallet import router as credits_router
 from ai_council import MAX_COUNCIL_BUDGET_USD, MAX_OUTPUT_TOKENS_PER_MODEL, actual_cost_usd, build_critic_prompt, estimate_council_cost
 
 load_dotenv()
@@ -39,6 +40,7 @@ app = FastAPI(title="AI HUB", version="0.2.0")
 app.include_router(accounts_router)
 app.include_router(conversations_router)
 app.include_router(project_memory_router)
+app.include_router(credits_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
