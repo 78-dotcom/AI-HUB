@@ -18,7 +18,7 @@
 ## AI HUB Marketplace
 - Includes four starter assistants: Business Planner, Writing Studio, Learning Coach, and Code Partner.
 - Individual accounts can create, edit, delete, and optionally publish assistant definitions.
-- Public assistants are visible in the community catalogue; private assistants remain owner-scoped.
+- Public assistants are visible in the community catalogue; private assistants remain owner-scoped. Owners can edit and delete their own assistants from the Marketplace UI.
 - Execution uses configured text models and does not expose provider keys.
 - Records use the `marketplace_assistants` PostgreSQL table.
 - APIs: `GET /api/marketplace`, `POST/PUT/DELETE /api/marketplace/assistants`, and `POST /api/marketplace/{assistant_id}/run`.
