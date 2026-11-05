@@ -38,6 +38,35 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.headers["x-frame-options"], "DENY")
         self.assertEqual(response.headers["cache-control"], "no-store")
 
+
+    def test_readiness_reports_unconfigured_database_without_secrets(self):
+        with patch.dict(os.environ, {"DATABASE_URL": ""}, clear=False):
+            response = self.client.get("/api/health/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "status": "degraded",
+            "database_configured": False,
+            "database_reachable": False,
+            "missing_tables": [],
+        })
+        self.assertNotIn("password", response.text.lower())
+
+    def test_readiness_checks_database_and_required_tables(self):
+        import accounts
+        from accounts import Base
+
+        with patch.dict(os.environ, {"DATABASE_URL": "sqlite://"}, clear=False):
+            accounts._engines.clear()
+            engine = accounts._engine()
+            Base.metadata.create_all(engine)
+            response = self.client.get("/api/health/ready")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "ok")
+            self.assertTrue(response.json()["database_reachable"])
+            self.assertEqual(response.json()["missing_tables"], [])
+            engine.dispose()
+            accounts._engines.clear()
+
     def test_models_require_authentication(self):
         response = self.client.get("/api/models")
         self.assertEqual(response.status_code, 401)
