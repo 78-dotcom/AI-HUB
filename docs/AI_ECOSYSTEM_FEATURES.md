@@ -28,3 +28,6 @@ Marketplace payments, commissions, creator payouts, ratings, review moderation, 
 
 ## Release gate
 The new table is included in `/api/health/ready`. Production use still requires the existing database backup/readiness checks. Keep the pull request in draft until those checks are complete; do not merge into the Render auto-deploying `main` branch prematurely.
+
+
+Catalogue owners can edit and delete their own assistants from the integrated Marketplace panel; non-owners only see public assistant details.
