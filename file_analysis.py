@@ -61,7 +61,7 @@ def _ocr_pdf(raw: bytes, page_limit: int) -> str:
         raise
     except Exception as exc:
         raise DocumentError("OCR could not process this PDF. Check its pages and OCR language data.") from exc
-    return "\\n\\n".join(part.strip() for part in output if part.strip())
+    return "\n\n".join(part.strip() for part in output if part.strip())
 
 
 def _validate_office_archive(raw: bytes, required_member: str) -> None:
