@@ -389,14 +389,17 @@ async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
         critique = "The critic model was unavailable. The proposed answer is shown without independent review."
         critic_available = False
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-        if lead_usage is None:
+        if not lead_completed:
             raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
         critique = "The critic model could not complete its review. The proposed answer is shown without independent review."
         critic_available = False
 
     lead_actual = actual_cost_usd(lead_usage, lead)
     critic_actual = actual_cost_usd(critic_usage, critic) if critic_available else 0.0
-    actual_total = None if lead_actual is None else lead_actual + (critic_actual or 0.0)
+    actual_total = (
+        None if lead_actual is None or (critic_available and critic_actual is None)
+        else lead_actual + (critic_actual or 0.0)
+    )
     return {
         "mode": "two_model_review",
         "lead": {"model_id": body.lead_model, "model_name": lead["display_name"], "answer": proposed_answer},
