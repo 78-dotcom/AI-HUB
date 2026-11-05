@@ -1,5 +1,10 @@
 import base64
+import io
 import unittest
+import zipfile
+
+from docx import Document
+from openpyxl import Workbook
 
 from file_analysis import DocumentError, MAX_UPLOAD_BYTES, extract_document
 
@@ -40,6 +45,44 @@ class DocumentExtractionTests(unittest.TestCase):
         result = extract_document("large.txt", encoded(b"a" * 30_000))
         self.assertTrue(result["truncated"])
         self.assertEqual(len(result["text"]), 24_000)
+
+
+    def test_extracts_docx_paragraphs_and_tables(self):
+        document = Document()
+        document.add_paragraph("Project overview")
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Budget"
+        table.cell(0, 1).text = "100"
+        output = io.BytesIO()
+        document.save(output)
+        result = extract_document("brief.docx", encoded(output.getvalue()))
+        self.assertIn("Project overview", result["text"])
+        self.assertIn("Budget | 100", result["text"])
+        self.assertEqual(result["format"], "docx")
+
+    def test_extracts_xlsx_sheet_values(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Forecast"
+        sheet.append(["Month", "Revenue"])
+        sheet.append(["January", 1200])
+        output = io.BytesIO()
+        workbook.save(output)
+        result = extract_document("forecast.xlsx", encoded(output.getvalue()))
+        self.assertIn("[Sheet: Forecast]", result["text"])
+        self.assertIn("January | 1200", result["text"])
+        self.assertEqual(result["format"], "xlsx")
+
+    def test_rejects_invalid_office_archive(self):
+        with self.assertRaises(DocumentError):
+            extract_document("broken.docx", encoded(b"not a zip archive"))
+
+    def test_rejects_wrong_office_container_type(self):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("xl/workbook.xml", "<workbook/>")
+        with self.assertRaises(DocumentError):
+            extract_document("fake.docx", encoded(output.getvalue()))
 
 
 if __name__ == "__main__":
