@@ -10,7 +10,7 @@ Request JSON:
 
 Supported formats: PDF, DOCX, XLSX, TXT, Markdown, CSV and JSON.
 Maximum upload size: 8 MiB. Extracted text is capped at 24,000 characters.
-PDF text extraction is limited to the first 100 pages. If the text layer is empty, OCR processes up to 20 pages using Tesseract (English and Russian language data are installed in the container). Each page has a 15-second OCR timeout and a bounded render size. Encrypted PDFs are rejected. DOCX paragraphs and tables are extracted; XLSX worksheets are read without executing formulas. Office ZIP containers are limited to 2,000 entries and 32 MiB expanded size; worksheets are limited to 20,000 rows and 200 columns.
+PDF text extraction is limited to the first 100 pages. If the text layer is empty, OCR processes up to 5 pages using Tesseract (English and Russian language data are installed in the container). Each page has a 5-second per-page OCR timeout and a bounded render size. Encrypted PDFs are rejected. DOCX paragraphs and tables are extracted; XLSX worksheets are read without executing formulas. Office ZIP containers are limited to 2,000 entries and 32 MiB expanded size; worksheets are limited to 20,000 rows and 200 columns.
 CSV parsing checks the row limit; JSON is parsed and pretty-printed.
 
 The upload is processed in memory. The endpoint does not write the original file or extracted content to the database or filesystem. The response explicitly reports `stored: false`.
