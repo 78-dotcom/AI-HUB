@@ -292,7 +292,14 @@ async def intelligence_route(body: RoutingBody, request: Request) -> dict[str, A
 @app.post("/api/chat")
 async def chat(body: ChatBody, request: Request) -> dict[str, str]:
     require_session(request)
-    model = load_models().get(body.model)
+    configured_models = load_models()
+    model_key = body.model
+    if body.model == "auto":
+        routing = select_model(configured_models, body.messages[-1].get("content", ""))
+        if routing is None:
+            raise HTTPException(status_code=503, detail="No AI providers are configured yet.")
+        model_key = routing.model_id
+    model = configured_models.get(model_key)
     if not model:
         raise HTTPException(status_code=400, detail="That model is not configured.")
     messages: list[dict[str, str]] = []
@@ -315,8 +322,8 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
             result.raise_for_status()
             data = result.json()
         answer = _extract_assistant_text(data)
-        conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
-        return {"answer": answer, "conversation_id": conversation_id}
+        conversation_id = persist_chat(request, body.conversation_id, model_key, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
+        return {"answer": answer, "conversation_id": conversation_id, "selected_model": model_key}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
