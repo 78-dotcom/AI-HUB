@@ -81,6 +81,20 @@ AI HUB is one international workspace for multiple AI models, media creation, ev
 
 Some capabilities require user-owned provider accounts, API credentials, OAuth app registration, payment-provider onboarding, storage/queue services, or legal review. Credentials must be entered only into the appropriate provider dashboard or encrypted environment-variable manager; never paste passwords, API keys, database URLs or payment secrets into chat or source control.
 
+## Current implementation snapshot — 2026-11-06
+
+The following work is present on the draft feature branch; none of it is live in production:
+
+- **Document extraction UI and API:** PDF, DOCX, XLSX, TXT, Markdown, CSV and JSON; 8 MiB upload limit; 24,000-character extraction cap; authentication required; original uploads are processed in memory and are not persisted.
+- **Office-file safeguards:** ZIP archive entry and expanded-size limits; spreadsheet row/column limits; formulas are read as cached values and are not executed.
+- **Scanned PDF OCR:** Tesseract OCR for up to 5 pages, bounded render size, 5-second per-page timeout; English and Russian language packs are installed in the production image. OCR use is reported in the UI. This is not a substitute for a full OCR/document-storage service.
+- **Web Research:** authenticated UI/API, Brave LLM Context integration, provider-extracted page chunks and source metadata, numbered source IDs and clickable links, freshness filter, strict relevance mode, and prompt-injection instructions. This is source-grounded synthesis, **not independent truth verification** or direct full-page crawling by AI HUB.
+- **External prerequisite:** Web Research remains inactive until BRAVE_SEARCH_API_KEY is configured as a server-side Render secret. The provider account/plan and API key have not been created or purchased by this implementation.
+
+CI history:
+- Commit ee0787d38cacf24e3c916a1b07288c7df4aacb43: Tests #134 and Python checks #156 passed, including production Docker build and image-import smoke test.
+- Current Web Research LLM Context upgrade commit dfe8aa87bf3a91ce731c094f816e1ba835c7f280: fresh CI is running; do not mark it CI-verified until both workflows complete successfully.
+
 ## Current truthfulness rule
 
 A roadmap entry is not a shipped feature. The project status report must distinguish:
