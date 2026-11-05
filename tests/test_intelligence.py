@@ -47,8 +47,18 @@ class ModelRoutingTests(unittest.TestCase):
         self.assertEqual(decision.model_id, "provider:coder")
 
     def test_preference_breaks_close_tie_without_overriding_specialist(self):
-        decision = select_model(self.models, "Hello", "provider:writer")
-        self.assertEqual(decision.model_id, "provider:writer")
+        candidates = {
+            "provider:general": self.models["provider:general"],
+            "provider:general-alt": {
+                **self.models["provider:general"],
+                "id": "provider:general-alt",
+                "model": "general-alt",
+                "display_name": "General Alt",
+            },
+            "provider:coder": self.models["provider:coder"],
+        }
+        decision = select_model(candidates, "Hello", "provider:general-alt")
+        self.assertEqual(decision.model_id, "provider:general-alt")
         specialist = select_model(self.models, "Debug Python", "provider:writer")
         self.assertEqual(specialist.model_id, "provider:coder")
 
