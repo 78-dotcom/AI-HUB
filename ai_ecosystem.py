@@ -174,7 +174,7 @@ async def marketplace_list(request: Request) -> dict[str, Any]:
             MarketplaceAssistant.is_public.is_(True) |
             (MarketplaceAssistant.owner_id == (account["id"] if account else "__none__"))
         ).order_by(MarketplaceAssistant.updated_at.desc()).limit(100)).scalars().all()
-    return {"built_in": _BUILT_INS, "community": [_public(row) for row in rows]}
+    return {"built_in": _BUILT_INS, "community": [\n        {**_public(row), "can_edit": bool(account and row.owner_id == account["id"]),\n         "instructions": row.instructions if account and row.owner_id == account["id"] else None}\n        for row in rows\n    ]}
 
 @router.post("/marketplace/assistants")
 async def marketplace_create(body: AssistantCreateBody, request: Request) -> dict[str, Any]:
