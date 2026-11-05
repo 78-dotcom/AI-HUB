@@ -519,3 +519,19 @@ async def extract_uploaded_document(body: DocumentExtractBody, request: Request)
     except DocumentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+class DocumentExtractBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=11184820)
+
+
+@app.post("/api/files/extract")
+async def extract_uploaded_document(body: DocumentExtractBody, request: Request) -> dict[str, Any]:
+    """Extract text from a supported upload without persisting the uploaded file."""
+    require_session(request)
+    try:
+        result = extract_document(body.filename, body.content_base64)
+    except DocumentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
