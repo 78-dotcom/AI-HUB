@@ -4,9 +4,10 @@
 
 - `GET /api/credits/balance` returns an account-scoped balance from the ledger.
 - `GET /api/credits/ledger` returns the authenticated user's recent ledger entries.
-- `record_credit_entry` is an internal append-only posting primitive for trusted payment reconciliation code.
+- `record_credit_entry` is an internal append-only posting primitive for trusted payment reconciliation code. Current event types are completed purchase, spend, refund, and adjustment only.
 - An idempotency key prevents the same provider event from being posted twice for one account.
 - The ledger refuses deductions that would create a negative balance.
+- Reservation/hold and settlement workflows are intentionally not exposed yet; they require a separate atomic hold model before model calls can consume credits.
 - No public route can mint, purchase, transfer, redeem, or cash out credits.
 - The current API explicitly reports that purchases, transfers, and cash redemption are disabled.
 
