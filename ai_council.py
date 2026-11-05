@@ -20,10 +20,10 @@ def _price(model: Mapping[str, Any], field: str) -> float:
 
 
 def estimate_council_cost(prompt: str, lead: Mapping[str, Any], critic: Mapping[str, Any]) -> dict[str, Any]:
-    """Conservative upper-bound estimate for two calls, using declared USD / 1M tokens."""
-    lead_input_tokens = math.ceil(len(prompt) / 3)
+    """Conservative preflight estimate for two calls, using declared USD / 1M tokens."""
+    lead_input_tokens = math.ceil(len(prompt) / 2)
     critic_prompt_chars = len(prompt) + MAX_OUTPUT_TOKENS_PER_MODEL * 4 + 500
-    critic_input_tokens = math.ceil(critic_prompt_chars / 3)
+    critic_input_tokens = math.ceil(critic_prompt_chars / 2)
     lead_cost = (
         lead_input_tokens * _price(lead, "input_cost_per_1m_usd")
         + MAX_OUTPUT_TOKENS_PER_MODEL * _price(lead, "output_cost_per_1m_usd")
