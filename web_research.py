@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from intelligence import select_model
 
 router = APIRouter(prefix="/api/research", tags=["Web research"])
-BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/llm/context"
 
 
 class ResearchBody(BaseModel):
@@ -29,10 +29,16 @@ class ResearchBody(BaseModel):
 
 
 def normalize_search_results(payload: dict[str, Any], limit: int = 8) -> list[dict[str, str]]:
-    """Keep only unique HTTPS web results with bounded, plain-text metadata."""
-    results = payload.get("web", {}).get("results", [])
+    """Normalize provider-extracted page chunks into bounded, HTTPS-only evidence."""
+    grounding = payload.get("grounding")
+    if not isinstance(grounding, dict):
+        return []
+    results = grounding.get("generic", [])
+    metadata = payload.get("sources", {})
     if not isinstance(results, list):
         return []
+    if not isinstance(metadata, dict):
+        metadata = {}
     normalized: list[dict[str, str]] = []
     seen: set[str] = set()
     for item in results:
@@ -45,20 +51,38 @@ def normalize_search_results(payload: dict[str, Any], limit: int = 8) -> list[di
                 continue
         except ValueError:
             continue
-        if url in seen:
+        if url in seen or len(url) > 2048:
             continue
         title = str(item.get("title") or "").strip()[:300]
-        description = str(item.get("description") or "").strip()[:1800]
-        if not title or not description:
+        snippets = item.get("snippets", [])
+        if not isinstance(snippets, list):
             continue
+        excerpt = "\n\n".join(str(part).strip() for part in snippets if isinstance(part, str))
+        excerpt = excerpt[:5000]
+        if not title or not excerpt:
+            continue
+        source_meta = metadata.get(url, {})
+        if not isinstance(source_meta, dict):
+            source_meta = {}
+        hostname = str(source_meta.get("hostname") or parsed.hostname)[:255]
+        age_value = source_meta.get("age", "")
+        age = ", ".join(str(part) for part in age_value[:4]) if isinstance(age_value, list) else str(age_value)
+        fetched = source_meta.get("fetched_content_timestamp")
+        fetched_at = ""
+        if isinstance(fetched, (int, float)) and not isinstance(fetched, bool):
+            try:
+                fetched_at = datetime.fromtimestamp(fetched, timezone.utc).isoformat()
+            except (OverflowError, OSError, ValueError):
+                fetched_at = ""
         seen.add(url)
         normalized.append({
             "id": f"S{len(normalized) + 1}",
             "title": title,
-            "url": url[:2048],
-            "domain": parsed.hostname[:255],
-            "snippet": description,
-            "age": str(item.get("age") or "")[:80],
+            "url": url,
+            "domain": hostname,
+            "snippet": excerpt,
+            "age": age[:160],
+            "fetched_at": fetched_at,
         })
         if len(normalized) >= max(1, min(limit, 10)):
             break
@@ -79,6 +103,11 @@ async def _search_brave(query: str, count: int, country: str, search_lang: str,
         "country": country.upper(),
         "search_lang": search_lang.lower(),
         "safesearch": "moderate",
+        "maximum_number_of_urls": count,
+        "maximum_number_of_tokens": 4096,
+        "maximum_number_of_tokens_per_url": 1024,
+        "context_threshold_mode": "strict",
+        "enable_source_metadata": "true",
     }
     if freshness:
         params["freshness"] = freshness
