@@ -20,6 +20,7 @@ from accounts import account_user, revoke_account_session, router as accounts_ro
 from conversations import persist_chat, router as conversations_router
 from intelligence import public_routing_payload, select_model
 from future_lab import build_scenarios
+from ai_council import MAX_COUNCIL_BUDGET_USD, MAX_OUTPUT_TOKENS_PER_MODEL, actual_cost_usd, build_critic_prompt, estimate_council_cost
 
 load_dotenv()
 
@@ -130,6 +131,8 @@ def load_models() -> dict[str, dict[str, Any]]:
                 "input_modalities": clean_strings(input_modalities),
                 "output_modalities": clean_strings(output_modalities),
                 "context_window": context_window,
+                "input_cost_per_1m_usd": metadata.get("input_cost_per_1m_usd"),
+                "output_cost_per_1m_usd": metadata.get("output_cost_per_1m_usd"),
                 "base_url": base, "api_key": key,
             }
     return models
@@ -221,6 +224,13 @@ class FutureLabBody(BaseModel):
     variables: list[dict[str, Any]] = Field(min_length=1, max_length=8)
 
 
+class CouncilBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=6000)
+    lead_model: str = Field(min_length=1, max_length=200)
+    critic_model: str = Field(min_length=1, max_length=200)
+    budget_cap_usd: float = Field(gt=0, le=MAX_COUNCIL_BUDGET_USD)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
@@ -305,6 +315,101 @@ async def future_lab_scenarios(body: FutureLabBody, request: Request) -> dict[st
         return build_scenarios(body.objective, body.domain, body.horizon_months, body.variables)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/council/run")
+async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
+    """Run an explicitly requested two-model review under a declared spend ceiling."""
+    require_session(request)
+    configured = load_models()
+    if body.lead_model == body.critic_model:
+        raise HTTPException(status_code=400, detail="Choose two different models for an independent review.")
+    lead = configured.get(body.lead_model)
+    critic = configured.get(body.critic_model)
+    if not lead or not critic:
+        raise HTTPException(status_code=400, detail="One or both selected models are not configured.")
+    for selected_model in (lead, critic):
+        if "text" not in selected_model.get("input_modalities", ["text"]):
+            raise HTTPException(status_code=400, detail="AI Council currently supports text-input models only.")
+    try:
+        estimate = estimate_council_cost(body.prompt, lead, critic)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if estimate["estimated_max_cost_usd"] > body.budget_cap_usd:
+        raise HTTPException(
+            status_code=402,
+            detail="$" + "{:.6f}; your cap is $".format(estimate["estimated_max_cost_usd"]) + "{:.6f}. Choose cheaper models or raise your cap.".format(body.budget_cap_usd),
+        )
+
+    lead_usage = None
+    critic_usage = None
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(55.0, connect=15.0)) as client:
+            lead_response = await client.post(
+                f'{lead["base_url"]}/chat/completions',
+                headers={"Authorization": f'Bearer {lead["api_key"]}', "Content-Type": "application/json"},
+                json={
+                    "model": lead["model"],
+                    "messages": [
+                        {"role": "system", "content": "Solve the user's task carefully. State assumptions and uncertainty. Do not invent facts or sources."},
+                        {"role": "user", "content": body.prompt},
+                    ],
+                    "temperature": 0.4,
+                    "max_tokens": MAX_OUTPUT_TOKENS_PER_MODEL,
+                },
+            )
+            lead_response.raise_for_status()
+            lead_data = lead_response.json()
+            proposed_answer = _extract_assistant_text(lead_data)
+            lead_usage = lead_data.get("usage")
+
+            critic_response = await client.post(
+                f'{critic["base_url"]}/chat/completions',
+                headers={"Authorization": f'Bearer {critic["api_key"]}', "Content-Type": "application/json"},
+                json={
+                    "model": critic["model"],
+                    "messages": [
+                        {"role": "system", "content": "You are the independent critic in AI HUB Council. Be rigorous, fair, and specific."},
+                        {"role": "user", "content": build_critic_prompt(body.prompt, proposed_answer)},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": MAX_OUTPUT_TOKENS_PER_MODEL,
+                },
+            )
+            critic_response.raise_for_status()
+            critic_data = critic_response.json()
+            critique = _extract_assistant_text(critic_data)
+            critic_usage = critic_data.get("usage")
+        critic_available = True
+    except httpx.HTTPStatusError as exc:
+        if lead_usage is None:
+            raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
+        critique = "The critic model was unavailable. The proposed answer is shown without independent review."
+        critic_available = False
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+        if lead_usage is None:
+            raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
+        critique = "The critic model could not complete its review. The proposed answer is shown without independent review."
+        critic_available = False
+
+    lead_actual = actual_cost_usd(lead_usage, lead)
+    critic_actual = actual_cost_usd(critic_usage, critic) if critic_available else 0.0
+    actual_total = None if lead_actual is None else lead_actual + (critic_actual or 0.0)
+    return {
+        "mode": "two_model_review",
+        "lead": {"model_id": body.lead_model, "model_name": lead["display_name"], "answer": proposed_answer},
+        "critic": {
+            "model_id": body.critic_model,
+            "model_name": critic["display_name"],
+            "available": critic_available,
+            "review": critique,
+        },
+        "estimated_max_cost_usd": estimate["estimated_max_cost_usd"],
+        "actual_cost_usd": round(actual_total, 8) if actual_total is not None else None,
+        "budget_cap_usd": body.budget_cap_usd,
+        "model_calls": 2 if critic_available else 1,
+        "note": "Two-model review, not guaranteed consensus. Verify important claims independently.",
+    }
 
 
 @app.post("/api/chat")
