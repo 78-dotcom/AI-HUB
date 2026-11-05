@@ -59,7 +59,7 @@ class HubCreditsLedgerTests(unittest.TestCase):
 
     def test_negative_balance_and_invalid_events_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Insufficient"):
-            wallet.record_credit_entry("user-one", "overspend", "settlement", Decimal("-1"))
+            wallet.record_credit_entry("user-one", "overspend", "spend", Decimal("-1"))
         with self.assertRaisesRegex(ValueError, "Unsupported"):
             wallet.record_credit_entry("user-one", "unknown", "transfer", Decimal("10"))
 
