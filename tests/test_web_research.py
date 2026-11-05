@@ -62,7 +62,7 @@ class WebResearchTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("[S1]", response.json()["answer"])
         self.assertEqual(response.json()["sources"][0]["url"], "https://example.com/report")
-        self.assertIn("not independently opened", response.json()["evidence_note"])
+        self.assertIn("not independent verification", response.json()["evidence_note"])
 
     def test_missing_search_key_returns_configuration_error(self):
         models = {"m1": {
