@@ -47,7 +47,7 @@ async function showUsage(){const box=$("usageContent");box.textContent=lang==="r
 
 function initEcosystem(){
  const brain=$("brainPanel"),reality=$("realityPanel"),market=$("marketPanel");
- const toggle=(id,panel)=>$(id).onclick=()=>{[brain,reality,market].forEach(x=>x.hidden=true);panel.hidden=!panel.hidden;if(!panel.hidden)panel.scrollIntoView({behavior:"smooth",block:"start"})};
+ const toggle=(id,panel)=>$(id).onclick=()=>{const menu=document.querySelector(".tools-menu");if(menu)menu.open=false;[brain,reality,market].forEach(x=>x.hidden=true);panel.hidden=!panel.hidden;if(!panel.hidden)panel.scrollIntoView({behavior:"smooth",block:"start"})};
  toggle("brainToggle",brain);toggle("realityToggle",reality);toggle("marketToggle",market);
  const ru=lang==="ru";
  $("brainLead").textContent=ru?"Brain выбирает подходящую модель и переключается на резервную, если основная недоступна.":"Brain selects a task-fit model and falls back if the primary provider fails.";
