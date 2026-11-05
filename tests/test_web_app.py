@@ -194,9 +194,7 @@ class WebAppAccessTests(unittest.TestCase):
                 "api_key": "private-key",
             },
         }
-        with patch.object(web_app, "load_models", return_value=models), \\
-             patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), \\
-             patch.object(web_app, "persist_chat", return_value=None):
+        with patch.object(web_app, "load_models", return_value=models), patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), patch.object(web_app, "persist_chat", return_value=None):
             response = self.client.post(
                 "/api/chat",
                 json={"model": "auto", "messages": [
