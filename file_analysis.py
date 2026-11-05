@@ -21,7 +21,7 @@ MAX_ARCHIVE_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 2_000
 MAX_SPREADSHEET_ROWS = 20_000
 MAX_SPREADSHEET_COLUMNS = 200
-MAX_OCR_PAGES = 20
+MAX_OCR_PAGES = 5
 MAX_OCR_TEXT_THRESHOLD = 40
 
 
@@ -53,7 +53,7 @@ def _ocr_pdf(raw: bytes, page_limit: int) -> str:
                 pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
                 image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
                 output.append(pytesseract.image_to_string(
-                    image, lang=language, timeout=15
+                    image, lang=language, timeout=5
                 ))
         finally:
             document.close()
