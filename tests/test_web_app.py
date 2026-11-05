@@ -207,6 +207,44 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.json()["answer"], "Routed answer")
         self.assertEqual(response.json()["selected_model"], "provider:coder")
 
+
+    def test_future_lab_scenarios_require_authentication(self):
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 12, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 401)
+
+    def test_future_lab_scenarios_returns_transparent_cases(self):
+        self.login()
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 12, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "assumption_stress_test")
+        self.assertEqual(payload["scenarios"][0]["variables"][0]["projected_value"], 8000)
+        self.assertEqual(payload["scenarios"][2]["variables"][0]["projected_value"], 13000)
+        self.assertIn("No probabilities", payload["assumptions"][2])
+
+    def test_future_lab_rejects_invalid_horizon(self):
+        self.login()
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 0, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 422)
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
