@@ -139,6 +139,46 @@ class CouncilEndpointTests(unittest.TestCase):
         self.assertNotIn("never-return-this-secret", response.text)
         self.assertNotIn("private.example", response.text)
 
+
+    def test_council_returns_partial_answer_when_critic_fails_without_usage(self):
+        class FakeResponse:
+            def __init__(self, critic=False):
+                self.critic = critic
+
+            def raise_for_status(self):
+                if self.critic:
+                    request = web_app.httpx.Request("POST", "https://private.example/v1/chat/completions")
+                    response = web_app.httpx.Response(503, request=request)
+                    raise web_app.httpx.HTTPStatusError("critic unavailable", request=request, response=response)
+
+            def json(self):
+                return {"choices": [{"message": {"content": "Lead proposal"}}]}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                self.calls = 0
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, headers, json):
+                self.calls += 1
+                return FakeResponse(critic=self.calls == 2)
+
+        with patch.object(web_app, "load_models", return_value=configured_models()):
+            with patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient):
+                response = self.client.post("/api/council/run", json=self.payload())
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["lead"]["answer"], "Lead proposal")
+        self.assertFalse(result["critic"]["available"])
+        self.assertEqual(result["model_calls"], 1)
+        self.assertIsNone(result["actual_cost_usd"])
+
     def test_council_requires_distinct_models(self):
         body = self.payload()
         body["critic_model"] = body["lead_model"]
