@@ -96,7 +96,9 @@ def _score_model(
     score = 0
     matched = [capability for capability in classification.required_capabilities
                if capability in capabilities]
-    score += len(matched) * 10
+    # "chat" is a baseline capability, not a specialist advantage.
+    score += sum(1 if classification.task == "general" and capability == "chat" else 10
+                 for capability in matched)
 
     task = classification.task
     category = str(model.get("category", "")).strip().lower()
