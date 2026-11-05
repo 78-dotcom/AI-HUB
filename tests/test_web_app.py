@@ -106,6 +106,51 @@ class WebAppAccessTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     web_app._extract_assistant_text(payload)
 
+    def test_intelligence_route_requires_authentication(self):
+        response = self.client.post(
+            "/api/intelligence/route", json={"prompt": "Help me debug Python"}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_intelligence_route_selects_specialist_without_exposing_secrets(self):
+        self.login()
+        models = {
+            "provider:general": {
+                "id": "provider:general", "provider": "provider",
+                "provider_name": "Provider", "model": "general",
+                "display_name": "General", "category": "general",
+                "capabilities": ["chat"], "api_key": "private-key",
+                "base_url": "https://private.example",
+            },
+            "provider:coder": {
+                "id": "provider:coder", "provider": "provider",
+                "provider_name": "Provider", "model": "coder",
+                "display_name": "Coder", "category": "coding",
+                "capabilities": ["chat", "code"], "api_key": "private-key",
+                "base_url": "https://private.example",
+            },
+        }
+        with patch.object(web_app, "load_models", return_value=models):
+            response = self.client.post(
+                "/api/intelligence/route",
+                json={"prompt": "Please debug this Python code"},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["task"], "coding")
+        self.assertEqual(payload["selected_model"]["id"], "provider:coder")
+        self.assertNotIn("api_key", response.text)
+        self.assertNotIn("private.example", response.text)
+
+    def test_intelligence_route_reports_no_configured_models(self):
+        self.login()
+        with patch.object(web_app, "load_models", return_value={}):
+            response = self.client.post(
+                "/api/intelligence/route", json={"prompt": "Hello"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
