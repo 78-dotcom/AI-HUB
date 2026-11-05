@@ -114,3 +114,26 @@ Do not promise unlimited model usage. Offer transparent plan limits, usage visib
 ## What is not claimed
 
 This roadmap does not claim that AI HUB has invented multi-agent systems, persistent memory, world models, or source verification. The product opportunity is to combine these capabilities into a coherent, transparent, user-controlled experience with measurable quality and predictable costs.
+
+
+## AI Council implementation contract
+
+The first implementation is an opt-in, two-call review: a lead model proposes an answer and a different critic model reviews it. It does not claim consensus and does not yet run a third synthesis call.
+
+Before AI Council can call a model, each selected model must have verified pricing metadata in `AI_PROVIDERS_JSON`:
+- `input_cost_per_1m_usd`: provider's current USD price per million input tokens.
+- `output_cost_per_1m_usd`: provider's current USD price per million output tokens.
+
+These values must be checked against the provider's current published pricing and maintained when prices change. Missing or invalid prices cause the request to be rejected before any provider call. The endpoint limits each model response to 800 output tokens and accepts a user-specified estimated budget cap no higher than USD 1.00. It estimates the maximum request cost before execution and rejects requests whose estimate exceeds the cap.
+
+The cap is an estimate gate, not a guarantee of the provider's final invoice: provider pricing, token accounting, and billing adjustments may differ. The interface says so, reports provider-reported usage when available, and must never advertise unlimited or guaranteed-cost execution. A future release should add provider billing reconciliation and account-level daily/monthly quotas before offering paid multi-model usage at scale.
+
+Example model metadata shape (illustrative values only; do not copy prices without verification):
+
+```json
+{
+  "id": "example-model",
+  "input_cost_per_1m_usd": 0.0,
+  "output_cost_per_1m_usd": 0.0
+}
+```
