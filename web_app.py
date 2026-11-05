@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from accounts import account_user, revoke_account_session, router as accounts_router
 from conversations import persist_chat, router as conversations_router
 from intelligence import public_routing_payload, select_model
+from future_lab import build_scenarios
 
 load_dotenv()
 
@@ -213,6 +214,13 @@ class RoutingBody(BaseModel):
     preferred_model: str | None = Field(default=None, max_length=200)
 
 
+class FutureLabBody(BaseModel):
+    objective: str = Field(min_length=1, max_length=1000)
+    domain: str = Field(min_length=1, max_length=80)
+    horizon_months: int = Field(ge=1, le=120)
+    variables: list[dict[str, Any]] = Field(min_length=1, max_length=8)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
@@ -287,6 +295,16 @@ async def intelligence_route(body: RoutingBody, request: Request) -> dict[str, A
     configured = load_models()
     decision = select_model(configured, body.prompt, body.preferred_model)
     return public_routing_payload(decision, configured)
+
+
+@app.post("/api/future-lab/scenarios")
+async def future_lab_scenarios(body: FutureLabBody, request: Request) -> dict[str, Any]:
+    """Create transparent downside/base/upside stress cases without provider calls."""
+    require_session(request)
+    try:
+        return build_scenarios(body.objective, body.domain, body.horizon_months, body.variables)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/chat")
