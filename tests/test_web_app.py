@@ -194,7 +194,7 @@ class WebAppAccessTests(unittest.TestCase):
                 "api_key": "private-key",
             },
         }
-        with patch.object(web_app, "load_models", return_value=models), patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), patch.object(web_app, "persist_chat", return_value=None):
+        with patch.object(web_app, "load_models", return_value=models), patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), patch.object(web_app, "persist_chat", return_value="test-conversation-id"):
             response = self.client.post(
                 "/api/chat",
                 json={"model": "auto", "messages": [
@@ -204,6 +204,7 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["answer"], "Routed answer")
         self.assertEqual(response.json()["selected_model"], "provider:coder")
+        self.assertEqual(response.json()["conversation_id"], "test-conversation-id")
 
 
     def test_future_lab_scenarios_require_authentication(self):
