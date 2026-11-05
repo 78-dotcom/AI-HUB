@@ -65,6 +65,29 @@ class AIEcosystemTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 401)
 
+    def test_reality_check_runs_two_models_with_cost_cap(self):
+        self.login()
+        models = {
+            key: {"id": key, "model": key, "base_url": "https://provider.invalid/v1",
+                "api_key": "secret", "display_name": key, "provider_name": "Provider",
+                "input_modalities": ["text"], "input_cost_per_1m_usd": 1.0,
+                "output_cost_per_1m_usd": 2.0}
+            for key in ("p:lead", "p:reviewer")
+        }
+        mocked = AsyncMock(side_effect=[
+            ("A draft answer.", {"prompt_tokens": 10, "completion_tokens": 20}),
+            ("One claim is uncertain.", {"prompt_tokens": 20, "completion_tokens": 30}),
+        ])
+        with patch("ai_ecosystem._models", return_value=models), patch("ai_ecosystem._call", new=mocked):
+            response = self.client.post("/api/reality-check/run", json={
+                "prompt": "Check this claim", "lead_model": "p:lead",
+                "reviewer_model": "p:reviewer", "budget_cap_usd": 0.25
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["verification_level"], "cross_model_review_only")
+        self.assertEqual(mocked.await_count, 2)
+        self.assertEqual(mocked.await_args_list[0].args[2], 800)
+
 
 if __name__ == "__main__":
     unittest.main()
