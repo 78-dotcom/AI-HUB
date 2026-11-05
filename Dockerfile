@@ -13,6 +13,6 @@ COPY intelligence.py .
 COPY future_lab.py .
 COPY ai_council.py .
 COPY project_memory.py .
-COPY wallet.py .
+COPY wallet.py ai_ecosystem.py .
 COPY web ./web
 CMD ["sh", "-c", "exec uvicorn web_app:app --host 0.0.0.0 --port ${PORT:-10000}"]
