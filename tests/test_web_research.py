@@ -26,15 +26,16 @@ class WebResearchTests(unittest.TestCase):
         self.env.stop()
 
     def test_normalizer_rejects_non_https_and_deduplicates(self):
-        payload = {"web": {"results": [
-            {"title": "Unsafe", "url": "javascript:alert(1)", "description": "bad"},
-            {"title": "Good", "url": "https://example.com/a", "description": "evidence"},
-            {"title": "Duplicate", "url": "https://example.com/a", "description": "duplicate"},
-        ]}}
+        payload = {"grounding": {"generic": [
+            {"title": "Unsafe", "url": "javascript:alert(1)", "snippets": ["bad"]},
+            {"title": "Good", "url": "https://example.com/a", "snippets": ["evidence", "more context"]},
+            {"title": "Duplicate", "url": "https://example.com/a", "snippets": ["duplicate"]},
+        ]}, "sources": {"https://example.com/a": {"hostname": "example.com", "age": ["2026-10-01"]}}}
         sources = normalize_search_results(payload)
         self.assertEqual(len(sources), 1)
         self.assertEqual(sources[0]["id"], "S1")
         self.assertEqual(sources[0]["domain"], "example.com")
+        self.assertIn("more context", sources[0]["snippet"])
 
     def test_search_requires_authentication(self):
         self.client.post("/api/logout", json={})
