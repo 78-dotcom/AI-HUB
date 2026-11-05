@@ -25,6 +25,7 @@ from project_memory import router as project_memory_router
 from wallet import router as credits_router
 from ai_ecosystem import router as ecosystem_router
 from ai_council import MAX_COUNCIL_BUDGET_USD, MAX_OUTPUT_TOKENS_PER_MODEL, actual_cost_usd, build_critic_prompt, estimate_council_cost
+from file_analysis import DocumentError, extract_document
 
 load_dotenv()
 
@@ -502,3 +503,19 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
         raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail="Could not get a response from the AI provider. Please try again.") from exc
+
+
+class DocumentExtractBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=11_184_820)
+
+
+@app.post("/api/files/extract")
+async def extract_uploaded_document(body: DocumentExtractBody, request: Request) -> dict[str, Any]:
+    """Extract text from a supported upload without persisting the uploaded file."""
+    require_session(request)
+    try:
+        result = extract_document(body.filename, body.content_base64)
+    except DocumentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
