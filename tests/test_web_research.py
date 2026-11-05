@@ -64,7 +64,13 @@ class WebResearchTests(unittest.TestCase):
         self.assertIn("not independently opened", response.json()["evidence_note"])
 
     def test_missing_search_key_returns_configuration_error(self):
-        with patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": ""}):
+        models = {"m1": {
+            "id": "m1", "display_name": "Test model", "model": "test",
+            "base_url": "https://provider.example/v1", "api_key": "secret",
+            "input_modalities": ["text"],
+        }}
+        with patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": ""}), \
+             patch("web_app.load_models", return_value=models):
             response = self.client.post("/api/research/search", json={"query": "AI policy"})
         self.assertEqual(response.status_code, 503)
         self.assertIn("BRAVE_SEARCH_API_KEY", response.json()["detail"])
