@@ -16,6 +16,7 @@ COPY intelligence.py .
 COPY future_lab.py .
 COPY ai_council.py .
 COPY file_analysis.py .
+COPY web_research.py .
 COPY project_memory.py .
 COPY wallet.py ai_ecosystem.py .
 COPY web ./web
