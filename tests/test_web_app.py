@@ -151,6 +151,62 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["available"])
 
+    def test_auto_chat_routes_to_specialist_model(self):
+        self.login()
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "Routed answer"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+                }
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                self.requested_model = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, headers, json):
+                self.requested_model = json["model"]
+                return FakeResponse()
+
+        models = {
+            "provider:general": {
+                "id": "provider:general", "provider": "provider",
+                "provider_name": "Provider", "model": "general",
+                "display_name": "General", "category": "general",
+                "capabilities": ["chat"], "base_url": "https://api.example.test/v1",
+                "api_key": "private-key",
+            },
+            "provider:coder": {
+                "id": "provider:coder", "provider": "provider",
+                "provider_name": "Provider", "model": "coder",
+                "display_name": "Coder", "category": "coding",
+                "capabilities": ["chat", "code"], "base_url": "https://api.example.test/v1",
+                "api_key": "private-key",
+            },
+        }
+        with patch.object(web_app, "load_models", return_value=models), \\
+             patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), \\
+             patch.object(web_app, "persist_chat", return_value=None):
+            response = self.client.post(
+                "/api/chat",
+                json={"model": "auto", "messages": [
+                    {"role": "user", "content": "Please debug this Python code"}
+                ]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["answer"], "Routed answer")
+        self.assertEqual(response.json()["selected_model"], "provider:coder")
+
     def test_chat_requires_authentication(self):
         response = self.client.post(
             "/api/chat",
