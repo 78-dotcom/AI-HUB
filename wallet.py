@@ -48,14 +48,14 @@ def record_credit_entry(
     """Append one verified ledger event; never update or delete prior entries."""
     if not user_id or not idempotency_key or len(idempotency_key) > 160:
         raise ValueError("A valid user and idempotency key are required.")
-    if event_type not in {"purchase", "reservation", "settlement", "release", "refund", "adjustment"}:
+    if event_type not in {"purchase", "spend", "refund", "adjustment"}:
         raise ValueError("Unsupported ledger event type.")
     amount = Decimal(delta_credits)
     if not amount.is_finite() or amount == 0 or abs(amount) > Decimal("1000000000"):
         raise ValueError("Credit delta must be finite, non-zero, and within limits.")
-    if event_type in {"purchase", "release", "refund"} and amount < 0:
+    if event_type in {"purchase", "refund"} and amount < 0:
         raise ValueError("This event type must add credits.")
-    if event_type in {"reservation", "settlement"} and amount > 0:
+    if event_type == "spend" and amount > 0:
         raise ValueError("This event type must deduct credits.")
     entry_id = secrets.token_hex(16)
     try:
