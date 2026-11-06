@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import web_app
 import voice_realtime
+import voice_supervisor
 from accounts import _db
 
 
@@ -230,6 +231,32 @@ class RealtimeVoiceApiTests(unittest.TestCase):
             self.assertEqual(row.usage_seconds, 42)
             self.assertTrue(row.finalization_confirmed)
             self.assertEqual(row.close_reason, "duration_limit")
+
+    def test_external_supervisor_lease_has_one_owner_and_recovers_after_expiry(self):
+        self.assertTrue(voice_supervisor.acquire_or_renew_lease("worker-a", now=100))
+        self.assertFalse(voice_supervisor.acquire_or_renew_lease("worker-b", now=105))
+        self.assertTrue(voice_supervisor.acquire_or_renew_lease("worker-b", now=121))
+        self.assertFalse(voice_supervisor.acquire_or_renew_lease("worker-a", now=122))
+
+    def test_external_mode_registers_session_for_worker_without_inline_sideband(self):
+        now = int(__import__("time").time())
+        with _db() as db:
+            db.add(voice_realtime.VoiceSupervisorLease(
+                lease_name="primary", owner_id="test-worker",
+                heartbeat_at=now, lease_expires_at=now + 60,
+            ))
+        with patch.dict(os.environ, {"VOICE_SUPERVISOR_MODE": "external"}), \\
+             patch.object(voice_realtime.websockets, "connect") as connect:
+            response = self.client.post("/api/voice/attach", json={
+                "call_id": "rtc_external_123456",
+                "model": "gpt-realtime-2.1-mini",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["supervisor_mode"], "external")
+        connect.assert_not_called()
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionControl, "rtc_external_123456")
+            self.assertEqual(row.status, "connecting")
 
     def test_server_side_voice_control_rejects_second_active_session(self):
         identity = "a" * 64
