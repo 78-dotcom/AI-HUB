@@ -6,7 +6,7 @@ Voice is a first-class input and output mode, not a separate chat product.
 
 - The composer always supports keyboard input.
 - Dictation converts speech to editable text; the user explicitly sends it.
-- Live voice conversation is a separate, clearly labelled mode with a visible microphone state, transcript, mute/stop controls, and an obvious return to text.
+- Live voice conversation is a separate, clearly labelled mode with a visible microphone state, transcript, a 10-minute per-session countdown, a one-minute warning, automatic client-side stop, and an obvious return to text.
 - Users can interrupt spoken output at any time. The assistant stops playback immediately and listens again.
 - The transcript remains in the conversation so users can switch between speaking and typing without losing context.
 - Voice mode is opt-in per conversation; it never starts recording automatically.
@@ -73,16 +73,17 @@ Before first use, explain in the selected UI language that microphone audio is s
 - [x] Allowlist Realtime models, configure server-side language/voice/turn detection, and cap each response at 512 output tokens.
 - [x] Add mocked contract tests for authentication, missing configuration, provider failures, and session configuration.
 - [x] Add shared SQL-backed per-identity issuance limits: 5-second reconnect cooldown and 12 session-token issuances per rolling hour, enforced atomically for PostgreSQL and SQLite, with automated tests.
-- [ ] Enforce active-session concurrency, maximum call duration, and spend before public rollout.
+- [ ] Enforce active-session concurrency, maximum call duration, and spend on the server before public rollout. The current 10-minute client timer is a best-effort UX safeguard, not a hard server-side cap.
 - [ ] Add a provider-neutral adapter interface before expanding beyond the first provider.
 
-**Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. The current 5-second/12-per-hour issuance guard is persisted in the shared SQL database and applied atomically across application instances. It limits token issuance, not the lifetime or cost of an already established call. The client must always provide a visible Stop control, and hard server-side session-duration/spend enforcement remains a release requirement.
+**Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. The current 5-second/12-per-hour issuance guard is persisted in the shared SQL database and applied atomically across application instances. It limits token issuance, not the lifetime or cost of an already established call. The client now shows a 10-minute countdown, warns at one minute remaining, and closes the local WebRTC peer connection at the limit (including when a suspended tab becomes active again). This is a best-effort client-side safeguard only: it does not guarantee termination if the browser/app crashes or the connection outlives the client, and it is not a hard provider-spend cap. The visible Stop control remains available; server-mediated session termination, active-session concurrency, hard duration/spend enforcement, and usage reconciliation remain release requirements.
 
 ### Phase 3 — real-time provider integration
 - [x] Integrate the first provider using the documented OpenAI Realtime API.
 - [x] Add browser WebRTC connection setup, remote audio playback, explicit stop, server-VAD turn detection, and interruption.
 - [x] Persist paired transcript text for signed-in accounts; raw audio is not stored by AI HUB.
 - [ ] Add reconnect handling and automated tests for dropped calls, permission revocation, and budget exhaustion.
+- [x] Add a 10-minute client-side session timer, one-minute warning, automatic local WebRTC shutdown, and timer re-check on tab resume.
 - [ ] Add usage reconciliation and hard server-side duration/spend controls backed by shared state.
 
 ### Phase 4 — device validation and rollout
@@ -104,6 +105,6 @@ Before first use, explain in the selected UI language that microphone audio is s
 
 ## Status
 
-Persistent voice-token issuance quotas are now stored in the shared SQL database (5-second cooldown; 12 issuances per rolling hour per signed-in account or workspace session). This does not yet limit active-call duration or provider spend. A first end-to-end code path is now present in the mobile web client and backend: an authenticated endpoint mints a short-lived OpenAI Realtime client secret, the browser connects directly over WebRTC, plays assistant audio, supports turn interruption, and stores text transcripts for signed-in accounts. Android and iOS shells now request microphone permission only for the trusted AI HUB HTTPS origin. The server key is never sent to the client and AI HUB does not store raw microphone audio.
+Persistent voice-token issuance quotas are now stored in the shared SQL database (5-second cooldown; 12 issuances per rolling hour per signed-in account or workspace session). The client now requests local shutdown after 10 minutes, but this does not yet impose a hard server-side active-call duration limit or provider-spend cap. A first end-to-end code path is now present in the mobile web client and backend: an authenticated endpoint mints a short-lived OpenAI Realtime client secret, the browser connects directly over WebRTC, plays assistant audio, supports turn interruption, and stores text transcripts for signed-in accounts. Android and iOS shells now request microphone permission only for the trusted AI HUB HTTPS origin. The server key is never sent to the client and AI HUB does not store raw microphone audio.
 
 **Not yet verified in a real session:** Render still needs the server-side `OPENAI_API_KEY` environment variable; no real provider connection or physical Android/iPhone microphone test has been completed. The previous code commit passed 101 Python tests, JavaScript syntax checks, an Android debug APK build, and an iOS simulator build. A new CI run is checking the additional session-issuance limits and tests. The 60-second ephemeral token expiry does not terminate an established call, and hard server-side call-duration/spend limits, reconnect handling, and usage reconciliation remain outstanding. Do not announce live voice as generally available until these release gates pass.
