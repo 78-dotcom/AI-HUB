@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import UIKit
 
 private let appHost = "ai-hub-w6h6.onrender.com"
 private let appURL = URL(string: "https://ai-hub-w6h6.onrender.com/")!
@@ -74,10 +75,11 @@ private struct AIHUBWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         @Binding private var loadError: String?
-        var lastReloadToken = UUID()
+        var lastReloadToken: UUID
 
-        init(loadError: Binding<String?>) {
+        init(loadError: Binding<String?>, reloadToken: UUID) {
             _loadError = loadError
+            lastReloadToken = reloadToken
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -93,7 +95,7 @@ private struct AIHUBWebView: UIViewRepresentable {
                 return
             }
 
-            if url.host?.lowercased() == appHost {
+            if url.host?.lowercased() == appHost && (url.port == nil || url.port == 443) {
                 decisionHandler(.allow)
             } else {
                 UIApplication.shared.open(url)
