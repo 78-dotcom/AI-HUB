@@ -66,10 +66,14 @@ Before first use, explain in the selected UI language that microphone audio is s
 - Validate HTTPS, unsupported-browser, denied-permission, no-speech, and stop/send states.
 
 ### Phase 2 — server contracts
-- Add a provider capability registry for audio input/output and real-time sessions.
-- Add authenticated create/close session endpoints and a short-lived session token contract.
-- Add per-user concurrency, duration, and spend enforcement.
-- Add provider adapter interface and mocked contract tests before connecting a paid provider.
+- [x] Add an authenticated Realtime capability endpoint and session-token broker.
+- [x] Keep the project API key on the server; return only a short-lived client secret.
+- [x] Allowlist Realtime models, configure server-side language/voice/turn detection, and cap each response at 512 output tokens.
+- [x] Add mocked contract tests for authentication, missing configuration, provider failures, and session configuration.
+- [ ] Add per-user concurrency, session-duration, and spend enforcement before public rollout.
+- [ ] Add a provider-neutral adapter interface before expanding beyond the first provider.
+
+**Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. It is not a hard session-duration or spend cap. The client must always provide a visible Stop control, and server-side usage/budget enforcement remains a release requirement.
 
 ### Phase 3 — real-time provider integration
 - Integrate one provider with documented real-time audio support.
