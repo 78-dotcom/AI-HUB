@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 from accounts import account_user
+from conversations import persist_voice_turn
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,13 @@ OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 
 class VoiceSessionBody(BaseModel):
     language: str = Field(default="en", pattern="^(en|ru|es|fr|de)$")
+
+
+class VoiceTranscriptBody(BaseModel):
+    conversation_id: str | None = Field(default=None, max_length=36)
+    model: str = Field(min_length=1, max_length=100)
+    user_text: str = Field(min_length=1, max_length=12000)
+    assistant_text: str = Field(min_length=1, max_length=12000)
 
 
 def _voice_auth(request: Request) -> None:
@@ -148,5 +156,20 @@ async def create_voice_session(body: VoiceSessionBody, request: Request) -> dict
         "expires_at": expires_at,
         "client_secret_ttl_seconds": CLIENT_SECRET_TTL_SECONDS,
         "transport": "webrtc",
+        "raw_audio_stored_by_ai_hub": False,
+    }
+
+
+
+@router.post("/transcript")
+async def save_voice_transcript(body: VoiceTranscriptBody, request: Request) -> dict[str, Any]:
+    """Save text transcript only; never accept or store microphone audio."""
+    _voice_auth(request)
+    conversation_id = persist_voice_turn(
+        request, body.conversation_id, body.model, body.user_text, body.assistant_text
+    )
+    return {
+        "conversation_id": conversation_id,
+        "persisted": conversation_id is not None,
         "raw_audio_stored_by_ai_hub": False,
     }
