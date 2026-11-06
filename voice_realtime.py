@@ -570,6 +570,21 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
     ends_at = now + VOICE_MAX_DURATION_SECONDS
     try:
         with _db() as db:
+            # Recover stale active locks left behind by a crashed/restarted web process.
+            db.execute(
+                update(VoiceSessionControl)
+                .where(
+                    VoiceSessionControl.identity_hash == identity_hash,
+                    VoiceSessionControl.status.in_(("connecting", "active")),
+                    VoiceSessionControl.ends_at <= now,
+                )
+                .values(
+                    status="incomplete",
+                    closed_at=now,
+                    close_reason="controller_lease_expired",
+                    finalization_confirmed=False,
+                )
+            )
             db.add(
                 VoiceSessionControl(
                     call_id=body.call_id,
