@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
+import time
+from collections import deque
 from typing import Any
 
 import httpx
@@ -20,6 +23,11 @@ SUPPORTED_REALTIME_MODELS = {
     "gpt-realtime-1.5",
 }
 CLIENT_SECRET_TTL_SECONDS = 60
+VOICE_SESSION_WINDOW_SECONDS = 60 * 60
+VOICE_SESSION_MAX_PER_WINDOW = 12
+VOICE_SESSION_MIN_INTERVAL_SECONDS = 5
+_voice_issue_lock = threading.Lock()
+_voice_issue_history: dict[str, deque[float]] = {}
 OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 
 
@@ -32,6 +40,51 @@ class VoiceTranscriptBody(BaseModel):
     model: str = Field(min_length=1, max_length=100)
     user_text: str = Field(min_length=1, max_length=12000)
     assistant_text: str = Field(min_length=1, max_length=12000)
+
+
+
+def _voice_identity(request: Request) -> str:
+    user = account_user(request)
+    if user and user.get("id"):
+        raw_identity = f"account:{user['id']}"
+    else:
+        # Workspace-only sessions have no account ID. Hash the signed session
+        # cookie rather than retaining a credential or raw client address.
+        raw_identity = f"workspace:{request.cookies.get('aihub_session', '')}"
+    return hashlib.sha256(raw_identity.encode("utf-8")).hexdigest()
+
+
+def _check_voice_session_rate_limit(request: Request, now: float | None = None) -> None:
+    current = time.monotonic() if now is None else now
+    identity = _voice_identity(request)
+    with _voice_issue_lock:
+        # Opportunistically discard identities whose rolling windows expired.
+        expired = [
+            key for key, stamps in _voice_issue_history.items()
+            if not stamps or current - stamps[-1] >= VOICE_SESSION_WINDOW_SECONDS
+        ]
+        for key in expired:
+            _voice_issue_history.pop(key, None)
+
+        stamps = _voice_issue_history.setdefault(identity, deque())
+        while stamps and current - stamps[0] >= VOICE_SESSION_WINDOW_SECONDS:
+            stamps.popleft()
+
+        if stamps and current - stamps[-1] < VOICE_SESSION_MIN_INTERVAL_SECONDS:
+            retry_after = max(1, int(VOICE_SESSION_MIN_INTERVAL_SECONDS - (current - stamps[-1]) + 0.999))
+            raise HTTPException(
+                status_code=429,
+                detail="Please wait a few seconds before starting another voice session.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        if len(stamps) >= VOICE_SESSION_MAX_PER_WINDOW:
+            retry_after = max(1, int(VOICE_SESSION_WINDOW_SECONDS - (current - stamps[0]) + 0.999))
+            raise HTTPException(
+                status_code=429,
+                detail="Voice session limit reached for this account. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        stamps.append(current)
 
 
 def _voice_auth(request: Request) -> None:
@@ -88,6 +141,7 @@ async def create_voice_session(body: VoiceSessionBody, request: Request) -> dict
     if not api_key:
         raise HTTPException(status_code=503, detail="Realtime voice is not configured yet.")
 
+    _check_voice_session_rate_limit(request)
     model = _realtime_model()
     language_names = {
         "en": "English", "ru": "Russian", "es": "Spanish",
