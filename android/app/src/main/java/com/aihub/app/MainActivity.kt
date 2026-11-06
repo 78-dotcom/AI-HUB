@@ -1,17 +1,15 @@
 package com.aihub.app
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.webkit.CookieManager
-import android.webkit.SafeBrowsingResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.ComponentActivity
 
-class MainActivity : ComponentActivity() {
+class MainActivity : Activity() {
     private lateinit var webView: WebView
     private val appHost = "ai-hub-w6h6.onrender.com"
     private val appUrl = "https://$appHost/"
