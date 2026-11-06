@@ -176,10 +176,13 @@ def _extract_client_secret(payload: Any) -> tuple[str, int | None]:
 async def voice_capabilities(request: Request) -> dict[str, Any]:
     _voice_auth(request)
     configured = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    external_supervisor = os.getenv("VOICE_SUPERVISOR_MODE", "inline").strip().lower() == "external"
+    supervisor_ready = voice_supervisor_is_live() if external_supervisor else True
     model = _realtime_model() if configured else None
     return {
         "dictation": True,
-        "realtime_voice": configured,
+        "realtime_voice": configured and supervisor_ready,
+        "server_supervisor": supervisor_ready,
         "provider": "openai" if configured else None,
         "model": model,
         "requires_microphone_permission": True,
@@ -320,6 +323,27 @@ class VoiceSessionControl(Base):
     close_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     closed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     finalization_confirmed: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+
+
+
+class VoiceSupervisorLease(Base):
+    __tablename__ = "voice_supervisor_leases"
+
+    lease_name: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    heartbeat_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    lease_expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+def voice_supervisor_is_live(now: int | None = None) -> bool:
+    current = int(time.time() if now is None else now)
+    try:
+        with _db() as db:
+            row = db.get(VoiceSupervisorLease, "primary")
+            return bool(row and row.lease_expires_at > current)
+    except Exception:
+        return False
 
 
 Index(
@@ -555,7 +579,7 @@ async def _run_voice_sideband(
 
 @router.post("/attach")
 async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[str, Any]:
-    """Attach an authenticated server-side controller to the user's existing WebRTC call."""
+    """Register a call for the configured inline or durable external supervisor."""
     _voice_auth(request)
     if not os.getenv("OPENAI_API_KEY", "").strip():
         raise HTTPException(status_code=503, detail="Realtime voice is not configured yet.")
@@ -565,12 +589,15 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
     if body.model != model:
         raise HTTPException(status_code=400, detail="Voice model does not match the configured provider model.")
 
+    external_supervisor = os.getenv("VOICE_SUPERVISOR_MODE", "inline").strip().lower() == "external"
+    if external_supervisor and not voice_supervisor_is_live():
+        raise HTTPException(status_code=503, detail="The voice session supervisor is not available.")
+
     identity_hash = _voice_identity(request)
     now = int(time.time())
     ends_at = now + VOICE_MAX_DURATION_SECONDS
     try:
         with _db() as db:
-            # Recover stale active locks left behind by a crashed/restarted web process.
             db.execute(
                 update(VoiceSessionControl)
                 .where(
@@ -579,23 +606,15 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
                     VoiceSessionControl.ends_at <= now,
                 )
                 .values(
-                    status="incomplete",
-                    closed_at=now,
-                    close_reason="controller_lease_expired",
-                    finalization_confirmed=False,
+                    status="incomplete", closed_at=now,
+                    close_reason="controller_lease_expired", finalization_confirmed=False,
                 )
             )
-            db.add(
-                VoiceSessionControl(
-                    call_id=body.call_id,
-                    identity_hash=identity_hash,
-                    model=model,
-                    started_at=now,
-                    ends_at=ends_at,
-                    status="connecting",
-                    finalization_confirmed=False,
-                )
-            )
+            db.add(VoiceSessionControl(
+                call_id=body.call_id, identity_hash=identity_hash, model=model,
+                started_at=now, ends_at=ends_at, status="connecting",
+                finalization_confirmed=False,
+            ))
             db.flush()
     except IntegrityError as exc:
         raise HTTPException(
@@ -603,29 +622,29 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
             detail="A voice session is already active, or this call was already registered.",
         ) from exc
 
-    ready = asyncio.Event()
-    state: dict[str, Any] = {}
-    tasks = getattr(request.app.state, "voice_sideband_tasks", None)
-    if tasks is None:
-        tasks = {}
-        request.app.state.voice_sideband_tasks = tasks
-    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, model, now, ready, state))
-    tasks[body.call_id] = task
-    task.add_done_callback(lambda completed, key=body.call_id, registry=tasks: registry.pop(key, None))
-
-    try:
-        await asyncio.wait_for(ready.wait(), timeout=12)
-    except asyncio.TimeoutError as exc:
-        task.cancel()
-        raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.") from exc
-
-    if state.get("error"):
-        await task
-        raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.")
+    if not external_supervisor:
+        ready = asyncio.Event()
+        state: dict[str, Any] = {}
+        tasks = getattr(request.app.state, "voice_sideband_tasks", None)
+        if tasks is None:
+            tasks = {}
+            request.app.state.voice_sideband_tasks = tasks
+        task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, model, now, ready, state))
+        tasks[body.call_id] = task
+        task.add_done_callback(lambda completed, key=body.call_id, registry=tasks: registry.pop(key, None))
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=12)
+        except asyncio.TimeoutError as exc:
+            task.cancel()
+            raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.") from exc
+        if state.get("error"):
+            await task
+            raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.")
 
     return {
         "call_id": body.call_id,
         "server_controlled": True,
+        "supervisor_mode": "external" if external_supervisor else "inline",
         "started_at": now,
         "ends_at": ends_at,
         "max_duration_seconds": VOICE_MAX_DURATION_SECONDS,
