@@ -46,17 +46,29 @@ class RealtimeVoiceApiTests(unittest.TestCase):
             "HUB_ACCESS_PASSWORD": "test-workspace-password",
             "HUB_SESSION_SECRET": "test-session-secret",
             "OPENAI_API_KEY": "test-openai-key",
+            "DATABASE_URL": "sqlite://",
+            "HUB_SIGNUP_CODE": "test-invite-code",
             "OPENAI_REALTIME_MODEL": "gpt-realtime-2.1-mini",
             "RENDER": "",
         }, clear=False)
         self.env.start()
         web_app._login_failures.clear()
+        import accounts
+        accounts._engines.clear()
+        accounts._schema_ready.clear()
+        accounts._auth_failures.clear()
         self.client = TestClient(web_app.app)
         self.client.post("/api/login", json={"password": "test-workspace-password"})
 
     def tearDown(self):
         self.client.close()
         web_app._login_failures.clear()
+        import accounts
+        for engine in accounts._engines.values():
+            engine.dispose()
+        accounts._engines.clear()
+        accounts._schema_ready.clear()
+        accounts._auth_failures.clear()
         self.env.stop()
 
     def test_capabilities_require_authentication(self):
@@ -101,6 +113,42 @@ class RealtimeVoiceApiTests(unittest.TestCase):
         with patch.dict(os.environ, {"OPENAI_REALTIME_MODEL": "not-a-realtime-model"}):
             response = self.client.post("/api/voice/session", json={"language": "en"})
         self.assertEqual(response.status_code, 503)
+
+    def test_voice_transcript_is_saved_as_text_for_account_users(self):
+        registered = self.client.post("/api/auth/register", json={
+            "email": "voice-user@example.com",
+            "password": "a-very-long-test-password",
+            "invite_code": "test-invite-code",
+        })
+        self.assertEqual(registered.status_code, 200)
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "gpt-realtime-2.1-mini",
+            "user_text": "Привет, AI HUB",
+            "assistant_text": "Привет! Чем могу помочь?",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["persisted"])
+        self.assertFalse(response.json()["raw_audio_stored_by_ai_hub"])
+        conversations = self.client.get("/api/conversations").json()["conversations"]
+        self.assertEqual(len(conversations), 1)
+        self.assertEqual([m["role"] for m in conversations[0]["messages"]], ["user", "assistant"])
+
+    def test_voice_transcript_is_not_saved_for_workspace_only_users(self):
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "gpt-realtime-2.1-mini",
+            "user_text": "Hello",
+            "assistant_text": "Hi there",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["persisted"])
+
+    def test_voice_transcript_rejects_unknown_models(self):
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "not-realtime",
+            "user_text": "Hello",
+            "assistant_text": "Hi there",
+        })
+        self.assertEqual(response.status_code, 400)
 
     def test_provider_failure_returns_safe_error(self):
         fake = FakeAsyncClient(FakeResponse({}, status_code=401))
