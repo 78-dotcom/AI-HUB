@@ -41,11 +41,12 @@ def gemini_is_configured() -> bool:
 
 
 def gemini_session_cost(started_at: int, now: int | None = None) -> float:
-    """Conservative elapsed-time estimate for a paid Gemini Live project.
+    """Rough elapsed-time baseline, not an invoice estimate or spending cap.
 
     The free tier is zero-priced. Set GEMINI_BILLING_TIER=paid when the Google
-    AI Studio project has billing enabled; the estimate assumes both input and
-    output audio for every minute and is deliberately conservative.
+    AI Studio project has billing enabled. The baseline assumes input and output
+    audio at the published per-minute equivalents; actual Live API billing is
+    token-based and accumulated session context can increase later-turn costs.
     """
     tier = os.getenv("GEMINI_BILLING_TIER", "free").strip().lower()
     if tier == "free" and gemini_model() == GEMINI_FREE_TIER_MODEL:
