@@ -6,6 +6,7 @@ on:
       - "android/**"
       - "web/**"
       - "web_app.py"
+      - "voice_realtime.py"
       - "accounts.py"
       - "tests/**"
       - "requirements.txt"
@@ -17,6 +18,7 @@ on:
       - "android/**"
       - "web/**"
       - "web_app.py"
+      - "voice_realtime.py"
       - ".github/workflows/android-build.yml"
 
 permissions:
