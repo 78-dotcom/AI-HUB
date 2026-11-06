@@ -1,3 +1,5 @@
+import asyncio
+import json
 import os
 import unittest
 from types import SimpleNamespace
@@ -42,6 +44,29 @@ class FakeAsyncClient:
     async def post(self, url, **kwargs):
         self.request = (url, kwargs)
         return self.response
+
+
+
+
+class FakeSidebandConnection:
+    def __init__(self):
+        self.sent = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def send(self, message):
+        self.sent.append(json.loads(message))
+
+    async def recv(self):
+        return json.dumps({
+            "type": "session.closed",
+            "usage": {"seconds": 42},
+            "reason": "close_requested",
+        })
 
 
 class RealtimeVoiceApiTests(unittest.TestCase):
@@ -184,6 +209,69 @@ class RealtimeVoiceApiTests(unittest.TestCase):
             "assistant_text": "Hi there",
         })
         self.assertEqual(response.status_code, 400)
+
+
+    def test_server_side_attach_enforces_session_close_and_persists_usage(self):
+        fake = FakeSidebandConnection()
+        with patch.object(voice_realtime.websockets, "connect", return_value=fake), \
+             patch.object(voice_realtime, "VOICE_MAX_DURATION_SECONDS", 0):
+            response = self.client.post("/api/voice/attach", json={
+                "call_id": "rtc_1234567890abcdef",
+                "model": "gpt-realtime-2.1-mini",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["server_controlled"])
+        self.assertEqual(response.json()["max_duration_seconds"], 0)
+        self.assertEqual(fake.sent[0]["type"], "session.close")
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionControl, "rtc_1234567890abcdef")
+            self.assertIsNotNone(row)
+            self.assertEqual(row.status, "ended")
+            self.assertEqual(row.usage_seconds, 42)
+            self.assertTrue(row.finalization_confirmed)
+            self.assertEqual(row.close_reason, "duration_limit")
+
+    def test_server_side_voice_control_rejects_second_active_session(self):
+        identity = "a" * 64
+        with _db() as db:
+            db.add(voice_realtime.VoiceSessionControl(
+                call_id="rtc_active_session_123",
+                identity_hash=identity,
+                started_at=100,
+                ends_at=700,
+                status="active",
+            ))
+        with self.assertRaises(Exception):
+            with _db() as db:
+                db.add(voice_realtime.VoiceSessionControl(
+                    call_id="rtc_second_session_123",
+                    identity_hash=identity,
+                    started_at=101,
+                    ends_at=701,
+                    status="connecting",
+                ))
+                db.flush()
+
+    def test_realtime_response_usage_cost_uses_cached_and_uncached_rates(self):
+        event = {
+            "type": "response.done",
+            "response": {
+                "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 500,
+                    "input_token_details": {
+                        "audio_tokens": 800,
+                        "text_tokens": 200,
+                        "cached_tokens_details": {"audio_tokens": 100, "text_tokens": 50},
+                    },
+                    "output_token_details": {"audio_tokens": 400, "text_tokens": 100},
+                },
+            },
+        }
+        usage = voice_realtime._response_usage_cost("gpt-realtime-2.1-mini", event)
+        self.assertEqual(usage["input_tokens"], 1000)
+        self.assertEqual(usage["output_tokens"], 500)
+        self.assertAlmostEqual(usage["estimated_cost_usd"], 0.015363)
 
     def test_provider_failure_returns_safe_error(self):
         fake = FakeAsyncClient(FakeResponse({}, status_code=401))
