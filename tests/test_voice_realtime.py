@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import web_app
 import voice_realtime
+from accounts import _db
 
 
 class FakeResponse:
@@ -56,7 +57,6 @@ class RealtimeVoiceApiTests(unittest.TestCase):
         }, clear=False)
         self.env.start()
         web_app._login_failures.clear()
-        voice_realtime._voice_issue_history.clear()
         import accounts
         accounts._engines.clear()
         accounts._schema_ready.clear()
@@ -67,7 +67,6 @@ class RealtimeVoiceApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         web_app._login_failures.clear()
-        voice_realtime._voice_issue_history.clear()
         import accounts
         for engine in accounts._engines.values():
             engine.dispose()
@@ -106,6 +105,17 @@ class RealtimeVoiceApiTests(unittest.TestCase):
         voice_realtime._check_voice_session_rate_limit(
             request, now=100.0 + voice_realtime.VOICE_SESSION_WINDOW_SECONDS + 10.0
         )
+
+
+    def test_voice_session_quota_is_stored_in_shared_database(self):
+        request = SimpleNamespace(cookies={"aihub_session": "persistent-workspace-session"})
+        voice_realtime._check_voice_session_rate_limit(request, now=500.0)
+        identity = voice_realtime._voice_identity(request)
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionQuota, identity)
+            self.assertIsNotNone(row)
+            self.assertEqual(row.issued_count, 1)
+            self.assertEqual(row.last_issued_at, 500)
 
     def test_session_mints_ephemeral_secret_without_exposing_project_key(self):
         fake = FakeAsyncClient(FakeResponse({
