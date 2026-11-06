@@ -256,7 +256,7 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
                     await task
         if not done:
             final_status = "ended"
-            finalization_confirmed = True
+            finalization_confirmed = False
             with suppress(Exception):
                 await websocket.send_json({
                     "aiHub": {"type": "session.closed", "reason": "duration_limit"}
@@ -278,13 +278,14 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
             with suppress(Exception):
                 await upstream.close()
         estimated_cost = gemini_session_cost(started_at)
-        _update_voice_control(
-            call_id,
-            status=final_status,
+        with suppress(Exception):
+            _update_voice_control(
+                call_id,
+                status=final_status,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             estimated_cost_usd=estimated_cost,
             closed_at=int(time.time()),
             finalization_confirmed=finalization_confirmed,
-            close_reason="duration_limit" if int(time.time()) >= ends_at else "client_or_provider_closed",
-        )
+                close_reason="duration_limit" if int(time.time()) >= ends_at else "client_or_provider_closed",
+            )
