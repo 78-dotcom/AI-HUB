@@ -17,6 +17,7 @@ class AccountApiTests(unittest.TestCase):
         }, clear=False)
         self.env.start()
         accounts._engines.clear()
+        accounts._schema_ready.clear()
         accounts._auth_failures.clear()
         self.client = TestClient(web_app.app)
 
@@ -25,6 +26,7 @@ class AccountApiTests(unittest.TestCase):
         for engine in accounts._engines.values():
             engine.dispose()
         accounts._engines.clear()
+        accounts._schema_ready.clear()
         accounts._auth_failures.clear()
         self.env.stop()
 
