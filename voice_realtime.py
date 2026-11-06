@@ -165,6 +165,8 @@ async def create_voice_session(body: VoiceSessionBody, request: Request) -> dict
 async def save_voice_transcript(body: VoiceTranscriptBody, request: Request) -> dict[str, Any]:
     """Save text transcript only; never accept or store microphone audio."""
     _voice_auth(request)
+    if body.model not in SUPPORTED_REALTIME_MODELS:
+        raise HTTPException(status_code=400, detail="Unsupported realtime voice model.")
     conversation_id = persist_voice_turn(
         request, body.conversation_id, body.model, body.user_text, body.assistant_text
     )
