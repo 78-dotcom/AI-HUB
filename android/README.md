@@ -28,4 +28,4 @@ This is an early Android shell around the hosted web experience, not a fully nat
 
 ## Build verification
 
-The GitHub Actions workflow builds a debug APK and uploads it as the `ai-hub-android-debug` artifact. A successful CI build confirms compilation only; it does not replace installation and testing on physical Android devices. Do not distribute this debug APK as a production release.
+The GitHub Actions workflow builds a debug APK and uploads it as the `ai-hub-android-debug` artifact. A successful CI build confirms compilation only; it does not replace installation and testing on physical Android devices. Do not distribute this debug APK as a production release. CI also syntax-checks the web client when the mobile build workflow is triggered.
