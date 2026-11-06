@@ -48,7 +48,7 @@ class MainActivity : Activity() {
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onPermissionRequest(request: PermissionRequest) {
-                    runOnUiThread {
+                    this@MainActivity.runOnUiThread {
                         val origin = request.origin
                         val audioOnly = request.resources.isNotEmpty() &&
                             request.resources.all { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
@@ -59,13 +59,13 @@ class MainActivity : Activity() {
                             request.deny()
                             return@runOnUiThread
                         }
-                        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                        if (this@MainActivity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
                             PackageManager.PERMISSION_GRANTED) {
                             request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
                         } else {
-                            pendingWebPermissionRequest?.deny()
-                            pendingWebPermissionRequest = request
-                            requestPermissions(
+                            this@MainActivity.pendingWebPermissionRequest?.deny()
+                            this@MainActivity.pendingWebPermissionRequest = request
+                            this@MainActivity.requestPermissions(
                                 arrayOf(Manifest.permission.RECORD_AUDIO),
                                 audioPermissionRequest
                             )
