@@ -1,20 +1,38 @@
-name: Android app build
+name: Mobile app checks
 
 on:
   pull_request:
     paths:
       - "android/**"
+      - "web/**"
+      - "web_app.py"
+      - "docs/MOBILE_PRODUCT_AND_SECURITY.md"
       - ".github/workflows/android-build.yml"
   push:
     branches: [main]
     paths:
       - "android/**"
+      - "web/**"
+      - "web_app.py"
       - ".github/workflows/android-build.yml"
 
 permissions:
   contents: read
 
 jobs:
+  web-js-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Extract and syntax-check the web client
+        run: |
+          python3 -c 'import pathlib,re; s=pathlib.Path("web/index.html").read_text(); blocks=re.findall(r"<script>(.*?)</script>",s,re.S); assert blocks, "No inline client script found"; pathlib.Path("/tmp/ai-hub-client.js").write_text(blocks[-1])'
+          node --check /tmp/ai-hub-client.js
+          node --check web/service-worker.js
+
   debug-apk:
     runs-on: ubuntu-latest
     steps:
