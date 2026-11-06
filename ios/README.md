@@ -17,3 +17,5 @@ The project is generated with XcodeGen:
 `xcodebuild -project ios/AIHUB.xcodeproj -scheme AIHUB -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build`
 
 This is not yet a signed App Store release or a fully native offline client. It still relies on the hosted AI HUB web experience. Physical-device testing, accessibility review, file upload/download validation, signing, privacy disclosures, and App Store policy review are required before release.
+
+The iOS simulator build is checked by the `iOS app checks` GitHub Actions workflow. A successful simulator compile does not prove signing, App Store readiness, or physical-device behaviour.
