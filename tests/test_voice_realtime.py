@@ -245,15 +245,15 @@ class RealtimeVoiceApiTests(unittest.TestCase):
                 lease_name="primary", owner_id="test-worker",
                 heartbeat_at=now, lease_expires_at=now + 60,
             ))
-        with patch.dict(os.environ, {"VOICE_SUPERVISOR_MODE": "external"}), \\
-             patch.object(voice_realtime.websockets, "connect") as connect:
-            response = self.client.post("/api/voice/attach", json={
-                "call_id": "rtc_external_123456",
-                "model": "gpt-realtime-2.1-mini",
-            })
+        with patch.dict(os.environ, {"VOICE_SUPERVISOR_MODE": "external"}):
+            with patch.object(voice_realtime.websockets, "connect") as connect:
+                response = self.client.post("/api/voice/attach", json={
+                    "call_id": "rtc_external_123456",
+                    "model": "gpt-realtime-2.1-mini",
+                })
+                connect.assert_not_called()
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["supervisor_mode"], "external")
-        connect.assert_not_called()
         with _db() as db:
             row = db.get(voice_realtime.VoiceSessionControl, "rtc_external_123456")
             self.assertEqual(row.status, "connecting")
