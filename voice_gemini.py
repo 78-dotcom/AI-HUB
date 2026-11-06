@@ -10,6 +10,7 @@ from urllib.parse import quote, urlparse
 
 import websockets
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
 from accounts import _db
@@ -144,6 +145,20 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
     ends_at = started_at + VOICE_MAX_DURATION_SECONDS
     try:
         with _db() as db:
+            db.execute(
+                update(VoiceSessionControl)
+                .where(
+                    VoiceSessionControl.identity_hash == identity_hash,
+                    VoiceSessionControl.status.in_(("connecting", "active")),
+                    VoiceSessionControl.ends_at <= started_at,
+                )
+                .values(
+                    status="incomplete",
+                    closed_at=started_at,
+                    close_reason="controller_lease_expired",
+                    finalization_confirmed=False,
+                )
+            )
             db.add(VoiceSessionControl(
                 call_id=call_id,
                 identity_hash=identity_hash,
@@ -265,7 +280,9 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
                 await websocket.close(code=4408, reason="10-minute voice limit reached")
         else:
             final_status = "ended"
-            finalization_confirmed = True
+            finalization_confirmed = False
+            with suppress(Exception):
+                await websocket.close(code=1000, reason="Gemini Live session ended")
     except (WebSocketDisconnect, websockets.ConnectionClosed):
         final_status = "ended"
         finalization_confirmed = True
@@ -282,10 +299,10 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
             _update_voice_control(
                 call_id,
                 status=final_status,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            estimated_cost_usd=estimated_cost,
-            closed_at=int(time.time()),
-            finalization_confirmed=finalization_confirmed,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                estimated_cost_usd=estimated_cost,
+                closed_at=int(time.time()),
+                finalization_confirmed=finalization_confirmed,
                 close_reason="duration_limit" if int(time.time()) >= ends_at else "client_or_provider_closed",
             )
