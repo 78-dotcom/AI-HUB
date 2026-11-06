@@ -15,6 +15,13 @@ class GeminiVoiceAdapterTests(unittest.TestCase):
             self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=700), 0.23)
             self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=900), 0.23)
 
+    def test_custom_model_override_is_not_assumed_free(self):
+        with patch.dict(os.environ, {
+            "GEMINI_BILLING_TIER": "free",
+            "GEMINI_LIVE_MODEL": "some-paid-model",
+        }, clear=False):
+            self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=700), 0.23)
+
     def test_usage_metadata_is_normalized(self):
         self.assertEqual(
             voice_gemini._usage_counts({"usageMetadata": {
