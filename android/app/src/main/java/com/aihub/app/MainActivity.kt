@@ -54,7 +54,7 @@ class MainActivity : Activity() {
                             request.resources.all { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
                         val trustedOrigin = origin.scheme == "https" &&
                             origin.host.equals(appHost, ignoreCase = true) &&
-                            (origin.port == 443 || origin.port == 0)
+                            (origin.port == 443 || origin.port == -1)
                         if (!trustedOrigin || !audioOnly) {
                             request.deny()
                             return@runOnUiThread
