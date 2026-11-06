@@ -4,12 +4,10 @@ on:
   pull_request:
     paths:
       - "android/**"
-      - ".github/workflows/android-build.yml"
   push:
     branches: [main]
     paths:
       - "android/**"
-      - ".github/workflows/android-build.yml"
 
 permissions:
   contents: read
