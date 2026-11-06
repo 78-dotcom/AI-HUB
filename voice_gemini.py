@@ -9,7 +9,7 @@ from contextlib import suppress
 from urllib.parse import quote, urlparse
 
 import websockets
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
@@ -93,7 +93,8 @@ def _usage_counts(event: object) -> tuple[int, int] | None:
 
 
 @router.get("/providers")
-async def voice_providers() -> dict[str, object]:
+async def voice_providers(request: Request) -> dict[str, object]:
+    _voice_auth(request)
     providers = []
     if gemini_is_configured():
         providers.append({
