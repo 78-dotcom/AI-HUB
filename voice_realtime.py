@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
+import re
 import time
 from typing import Any
 
@@ -10,10 +13,12 @@ from accounts import Base, _db, account_user
 from conversations import persist_voice_turn
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, Integer, String, and_, case, or_, select, update
+from sqlalchemy import BigInteger, Index, Integer, String, and_, case, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
+import websockets
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
@@ -279,4 +284,231 @@ async def save_voice_transcript(body: VoiceTranscriptBody, request: Request) -> 
         "conversation_id": conversation_id,
         "persisted": conversation_id is not None,
         "raw_audio_stored_by_ai_hub": False,
+    }
+
+
+VOICE_MAX_DURATION_SECONDS = 10 * 60
+VOICE_SIDEBAND_URL = "wss://api.openai.com/v1/realtime?call_id={call_id}"
+VOICE_CALL_ID_PATTERN = re.compile(r"^rtc_[A-Za-z0-9_-]{6,100}$")
+VOICE_CLOSE_FINALIZATION_SECONDS = 8
+
+
+class VoiceAttachBody(BaseModel):
+    call_id: str = Field(min_length=10, max_length=110, pattern=r"^rtc_[A-Za-z0-9_-]{6,100}$")
+
+
+class VoiceSessionControl(Base):
+    __tablename__ = "voice_session_controls"
+
+    call_id: Mapped[str] = mapped_column(String(110), primary_key=True)
+    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    started_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ends_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="connecting")
+    usage_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    closed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    finalization_confirmed: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+
+Index(
+    "uq_voice_session_controls_active_identity",
+    VoiceSessionControl.identity_hash,
+    unique=True,
+    postgresql_where=text("status IN ('connecting', 'active')"),
+    sqlite_where=text("status IN ('connecting', 'active')"),
+)
+
+
+def _update_voice_control(
+    call_id: str,
+    *,
+    status: str | None = None,
+    usage_seconds: int | None = None,
+    closed_at: int | None = None,
+    finalization_confirmed: bool | None = None,
+) -> None:
+    values: dict[str, Any] = {}
+    if status is not None:
+        values["status"] = status
+    if usage_seconds is not None:
+        values["usage_seconds"] = max(0, int(usage_seconds))
+    if closed_at is not None:
+        values["closed_at"] = int(closed_at)
+    if finalization_confirmed is not None:
+        values["finalization_confirmed"] = bool(finalization_confirmed)
+    if not values:
+        return
+    with _db() as db:
+        db.execute(
+            update(VoiceSessionControl)
+            .where(VoiceSessionControl.call_id == call_id)
+            .values(**values)
+        )
+
+
+def _event_usage_seconds(event: Any) -> int | None:
+    if not isinstance(event, dict):
+        return None
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    seconds = usage.get("seconds")
+    if isinstance(seconds, (int, float)) and seconds >= 0:
+        return int(seconds)
+    return None
+
+
+async def _run_voice_sideband(
+    call_id: str,
+    ends_at: int,
+    ready: asyncio.Event,
+    state: dict[str, Any],
+) -> None:
+    """Attach a server-owned control socket and close the provider session at its deadline."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    usage_seconds: int | None = None
+    finalization_confirmed = False
+    final_status = "incomplete"
+    upstream = None
+    try:
+        url = VOICE_SIDEBAND_URL.format(call_id=call_id)
+        async with websockets.connect(
+            url,
+            additional_headers={"Authorization": f"Bearer {api_key}"},
+            open_timeout=10,
+            close_timeout=5,
+            ping_interval=20,
+            max_size=2**20,
+        ) as connection:
+            upstream = connection
+            _update_voice_control(call_id, status="active")
+            state["connected"] = True
+            ready.set()
+
+            close_requested = False
+            close_deadline: float | None = None
+            while True:
+                now = time.time()
+                if not close_requested and now >= ends_at:
+                    await connection.send(json.dumps({"type": "session.close"}))
+                    close_requested = True
+                    close_deadline = now + VOICE_CLOSE_FINALIZATION_SECONDS
+
+                if close_requested and close_deadline is not None and time.time() >= close_deadline:
+                    break
+
+                timeout = 1.0
+                if not close_requested:
+                    timeout = max(0.05, min(timeout, ends_at - time.time()))
+                elif close_deadline is not None:
+                    timeout = max(0.05, min(timeout, close_deadline - time.time()))
+
+                try:
+                    raw_event = await asyncio.wait_for(connection.recv(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    continue
+
+                try:
+                    event = json.loads(raw_event)
+                except (TypeError, ValueError):
+                    continue
+                latest_usage = _event_usage_seconds(event)
+                if latest_usage is not None:
+                    usage_seconds = latest_usage
+                    _update_voice_control(call_id, usage_seconds=usage_seconds)
+                if isinstance(event, dict) and event.get("type") == "session.closed":
+                    final_usage = _event_usage_seconds(event)
+                    if final_usage is not None:
+                        usage_seconds = final_usage
+                    finalization_confirmed = True
+                    final_status = "ended"
+                    break
+
+            if close_requested and not finalization_confirmed:
+                final_status = "incomplete"
+            elif not close_requested:
+                # The primary WebRTC session ended before our deadline.
+                final_status = "ended"
+    except asyncio.CancelledError:
+        final_status = "incomplete"
+        raise
+    except Exception as exc:
+        # Keep provider diagnostics and credentials out of client responses and logs.
+        state["error"] = type(exc).__name__
+        final_status = "failed" if not ready.is_set() else "incomplete"
+    finally:
+        if not ready.is_set():
+            ready.set()
+        try:
+            _update_voice_control(
+                call_id,
+                status=final_status,
+                usage_seconds=usage_seconds,
+                closed_at=int(time.time()),
+                finalization_confirmed=finalization_confirmed,
+            )
+        except Exception:
+            # The session is still closed upstream where possible; database reconciliation
+            # will show this record as incomplete if persistence is unavailable.
+            pass
+
+
+@router.post("/attach")
+async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[str, Any]:
+    """Attach an authenticated server-side controller to the user's existing WebRTC call."""
+    _voice_auth(request)
+    if not os.getenv("OPENAI_API_KEY", "").strip():
+        raise HTTPException(status_code=503, detail="Realtime voice is not configured yet.")
+    if not VOICE_CALL_ID_PATTERN.fullmatch(body.call_id):
+        raise HTTPException(status_code=400, detail="Invalid voice call identifier.")
+
+    identity_hash = _voice_identity(request)
+    now = int(time.time())
+    ends_at = now + VOICE_MAX_DURATION_SECONDS
+    try:
+        with _db() as db:
+            db.add(
+                VoiceSessionControl(
+                    call_id=body.call_id,
+                    identity_hash=identity_hash,
+                    started_at=now,
+                    ends_at=ends_at,
+                    status="connecting",
+                    finalization_confirmed=False,
+                )
+            )
+            db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="A voice session is already active, or this call was already registered.",
+        ) from exc
+
+    ready = asyncio.Event()
+    state: dict[str, Any] = {}
+    tasks = getattr(request.app.state, "voice_sideband_tasks", None)
+    if tasks is None:
+        tasks = {}
+        request.app.state.voice_sideband_tasks = tasks
+    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, ready, state))
+    tasks[body.call_id] = task
+    task.add_done_callback(lambda completed, key=body.call_id, registry=tasks: registry.pop(key, None))
+
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=12)
+    except asyncio.TimeoutError as exc:
+        task.cancel()
+        raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.") from exc
+
+    if state.get("error"):
+        await task
+        raise HTTPException(status_code=502, detail="Could not attach server-side voice controls.")
+
+    return {
+        "call_id": body.call_id,
+        "server_controlled": True,
+        "started_at": now,
+        "ends_at": ends_at,
+        "max_duration_seconds": VOICE_MAX_DURATION_SECONDS,
+        "usage_tracking": "provider_reported",
     }
