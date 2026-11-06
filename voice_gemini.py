@@ -33,7 +33,7 @@ MAX_CLIENT_MESSAGE_BYTES = 1024 * 1024
 
 
 def gemini_model() -> str:
-    return os.getenv("GEMINI_LIVE_MODEL", GEMINI_LIVE_DEFAULT_MODEL).strip()
+    return os.getenv("GEMINI_LIVE_MODEL", GEMINI_LIVE_DEFAULT_MODEL).strip() or GEMINI_LIVE_DEFAULT_MODEL
 
 
 def gemini_is_configured() -> bool:
