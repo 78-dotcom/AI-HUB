@@ -1,6 +1,9 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
+
+from fastapi import HTTPException
 
 from fastapi.testclient import TestClient
 
@@ -53,6 +56,7 @@ class RealtimeVoiceApiTests(unittest.TestCase):
         }, clear=False)
         self.env.start()
         web_app._login_failures.clear()
+        voice_realtime._voice_issue_history.clear()
         import accounts
         accounts._engines.clear()
         accounts._schema_ready.clear()
@@ -63,6 +67,7 @@ class RealtimeVoiceApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         web_app._login_failures.clear()
+        voice_realtime._voice_issue_history.clear()
         import accounts
         for engine in accounts._engines.values():
             engine.dispose()
@@ -81,6 +86,26 @@ class RealtimeVoiceApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["realtime_voice"])
         self.assertEqual(response.json()["model"], "gpt-realtime-2.1-mini")
+
+
+    def test_voice_session_cooldown_blocks_rapid_reconnects(self):
+        request = SimpleNamespace(cookies={"aihub_session": "signed-workspace-session"})
+        voice_realtime._check_voice_session_rate_limit(request, now=100.0)
+        with self.assertRaises(HTTPException) as caught:
+            voice_realtime._check_voice_session_rate_limit(request, now=102.0)
+        self.assertEqual(caught.exception.status_code, 429)
+        self.assertIn("Retry-After", caught.exception.headers)
+
+    def test_voice_session_rolling_hourly_limit(self):
+        request = SimpleNamespace(cookies={"aihub_session": "signed-workspace-session"})
+        for index in range(voice_realtime.VOICE_SESSION_MAX_PER_WINDOW):
+            voice_realtime._check_voice_session_rate_limit(request, now=100.0 + index * 6.0)
+        with self.assertRaises(HTTPException) as caught:
+            voice_realtime._check_voice_session_rate_limit(request, now=100.0 + 11 * 6.0 + 6.0)
+        self.assertEqual(caught.exception.status_code, 429)
+        voice_realtime._check_voice_session_rate_limit(
+            request, now=100.0 + voice_realtime.VOICE_SESSION_WINDOW_SECONDS + 10.0
+        )
 
     def test_session_mints_ephemeral_secret_without_exposing_project_key(self):
         fake = FakeAsyncClient(FakeResponse({
