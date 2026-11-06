@@ -25,3 +25,7 @@ GitHub Actions builds and uploads this debug APK for pull requests that change t
 ## Release status
 
 This is an early Android shell around the hosted web experience, not a fully native offline AI client. Before public distribution, the team must test sign-in, cookies, file upload/download, keyboard behaviour, navigation, accessibility, and current Android versions on physical devices; add a branded launcher icon and signed release configuration; and review Google Play policy requirements. iOS packaging is a separate next milestone.
+
+## Build verification
+
+The GitHub Actions workflow builds a debug APK and uploads it as the `ai-hub-android-debug` artifact. A successful CI build confirms compilation only; it does not replace installation and testing on physical Android devices. Do not distribute this debug APK as a production release.
