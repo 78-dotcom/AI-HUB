@@ -10,7 +10,7 @@ class GeminiVoiceAdapterTests(unittest.TestCase):
         with patch.dict(os.environ, {"GEMINI_BILLING_TIER": "free"}, clear=False):
             self.assertEqual(voice_gemini.gemini_session_cost(100, now=700), 0.0)
 
-    def test_paid_tier_cost_uses_conservative_audio_rate_and_ten_minute_cap(self):
+    def test_paid_tier_cost_is_audio_rate_baseline_with_ten_minute_duration_limit(self):
         with patch.dict(os.environ, {"GEMINI_BILLING_TIER": "paid"}, clear=False):
             self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=700), 0.23)
             self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=900), 0.23)
