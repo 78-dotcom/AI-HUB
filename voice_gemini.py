@@ -86,7 +86,12 @@ def _usage_counts(event: object) -> tuple[int, int] | None:
     if not isinstance(usage, dict):
         return None
     incoming = usage.get("promptTokenCount", usage.get("prompt_token_count", 0))
-    outgoing = usage.get("candidatesTokenCount", usage.get("candidates_token_count", 0))
+    # Live API documents responseTokenCount; keep candidatesTokenCount as a
+    # compatibility fallback for provider payload variants.
+    outgoing = usage.get(
+        "responseTokenCount",
+        usage.get("response_token_count", usage.get("candidatesTokenCount", usage.get("candidates_token_count", 0))),
+    )
     try:
         return max(0, int(incoming or 0)), max(0, int(outgoing or 0))
     except (TypeError, ValueError):
