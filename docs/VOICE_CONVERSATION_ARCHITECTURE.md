@@ -1,0 +1,99 @@
+# AI HUB voice conversation architecture
+
+## Product experience
+
+Voice is a first-class input and output mode, not a separate chat product.
+
+- The composer always supports keyboard input.
+- Dictation converts speech to editable text; the user explicitly sends it.
+- Live voice conversation is a separate, clearly labelled mode with a visible microphone state, transcript, mute/stop controls, and an obvious return to text.
+- Users can interrupt spoken output at any time. The assistant stops playback immediately and listens again.
+- The transcript remains in the conversation so users can switch between speaking and typing without losing context.
+- Voice mode is opt-in per conversation; it never starts recording automatically.
+
+## Proposed interaction states
+
+`idle → requesting_permission → connecting → listening → thinking → speaking → listening`
+
+Any state can transition to `stopping` and then `idle`. Permission denial, network loss, provider failure, and unsupported devices return to a recoverable idle state with a plain-language explanation. A user interrupt during `speaking` cancels playback and transitions to `listening`.
+
+## Architecture
+
+1. **Client audio session**
+   - Request microphone access only after the user taps Start voice.
+   - Use a secure context and platform-native audio session where available.
+   - Stream short-lived audio frames over an authenticated WebSocket or WebRTC session.
+   - Keep a live, editable transcript synchronized with the conversation.
+   - Use echo cancellation, noise suppression, and interruption handling where supported.
+2. **AI HUB session gateway**
+   - Authenticate the existing user session before opening a voice session.
+   - Apply per-user concurrency, duration, and spend limits.
+   - Create a short-lived provider session server-side; never expose provider API keys to browsers or mobile packages.
+   - Validate the selected model's declared input/output audio capabilities before connecting.
+   - Enforce origin checks, message-size limits, idle timeouts, and connection rate limits.
+3. **Provider adapter**
+   - Define a provider-neutral interface for session creation, audio input, transcript events, text/audio output, cancellation, and usage reporting.
+   - Keep provider-specific event formats inside adapters.
+   - If a provider lacks native real-time audio, offer a clearly labelled fallback pipeline: speech-to-text → existing text model → text-to-speech.
+   - Do not claim low-latency full-duplex support for a fallback pipeline.
+4. **Conversation persistence**
+   - Store user/assistant transcript text and message metadata, not raw audio by default.
+   - Persist provider/model identity, timestamps, completion/cancellation state, and measured usage.
+   - Make any future audio retention a separate explicit opt-in with retention and deletion controls.
+5. **Usage and safety**
+   - Show that live voice may incur audio input and output charges.
+   - Estimate cost before starting when reliable provider pricing is available; otherwise state that exact cost is not available.
+   - Enforce hard server-side duration and spend caps; stop the stream when limits are reached.
+   - Apply the same content and account controls as text chat.
+
+## Privacy disclosure
+
+Before first use, explain in the selected UI language that microphone audio is streamed to the chosen voice provider for real-time processing, that transcript text may be saved in chat history, and that raw audio is not stored by AI HUB by default. Name the provider and link to its current privacy terms when known. Never promise identical retention or training policies across providers.
+
+## Accessibility and fallback
+
+- Provide a visible live transcript and keyboard fallback at all times.
+- Expose listening/speaking state to screen readers; do not rely on colour alone.
+- Support mute, stop, and interrupt with large touch targets.
+- Respect OS microphone permissions and audio focus.
+- If real-time audio is unsupported, keep text chat and speech-to-text dictation available without blocking the user.
+
+## Delivery plan
+
+### Phase 1 — foundation (current)
+- Keep text and editable speech-to-text in the same composer.
+- Keep microphone permission opt-in and disclose browser speech recognition processing.
+- Validate HTTPS, unsupported-browser, denied-permission, no-speech, and stop/send states.
+
+### Phase 2 — server contracts
+- Add a provider capability registry for audio input/output and real-time sessions.
+- Add authenticated create/close session endpoints and a short-lived session token contract.
+- Add per-user concurrency, duration, and spend enforcement.
+- Add provider adapter interface and mocked contract tests before connecting a paid provider.
+
+### Phase 3 — real-time provider integration
+- Integrate one provider with documented real-time audio support.
+- Add streaming transcript, generated audio playback, cancellation, and interruption.
+- Persist transcript and usage metadata; do not persist raw audio by default.
+- Add tests for disconnects, reconnects, permission revocation, provider errors, and budget exhaustion.
+
+### Phase 4 — device validation and rollout
+- Test on real Android devices and iPhone/iPad, including Bluetooth headsets and speaker changes.
+- Measure connection time, first-audio latency, interruption latency, dropped frames, and cost per minute.
+- Roll out behind an opt-in feature flag with conservative quotas.
+- Expand to more providers only after the adapter contract and privacy review pass.
+
+## Acceptance criteria
+
+- No microphone access before explicit user action.
+- No provider secret in client code, application bundles, or browser storage.
+- A user can interrupt speech output and resume listening without starting a new conversation.
+- Transcript remains available and editable alongside ordinary text messages.
+- Raw audio is not persisted by default.
+- Usage limits are enforced server-side and tested.
+- Text chat remains usable if voice permission, network, provider, or device support fails.
+- Android and iOS physical-device tests pass before voice is announced as generally available.
+
+## Status
+
+This document defines the target design. It is not evidence that live voice streaming has been implemented. The existing browser microphone feature is speech-to-text dictation only; live two-way audio requires the later server gateway, provider adapter, and device work described above.
