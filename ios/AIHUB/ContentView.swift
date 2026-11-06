@@ -46,7 +46,7 @@ private struct AIHUBWebView: UIViewRepresentable {
     let reloadToken: UUID
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(loadError: $loadError)
+        Coordinator(loadError: $loadError, reloadToken: reloadToken)
     }
 
     func makeUIView(context: Context) -> WKWebView {
