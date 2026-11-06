@@ -246,6 +246,20 @@ async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
 
 
+@app.get("/manifest.webmanifest")
+async def web_manifest() -> FileResponse:
+    return FileResponse(os.path.join(WEB_DIR, "manifest.webmanifest"), media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js")
+async def service_worker() -> FileResponse:
+    return FileResponse(
+        os.path.join(WEB_DIR, "service-worker.js"),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "app": "AI HUB"}
