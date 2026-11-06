@@ -75,7 +75,8 @@ def active_sessions() -> list[VoiceSessionControl]:
     with _db() as db:
         rows = db.execute(
             select(VoiceSessionControl).where(
-                VoiceSessionControl.status.in_(("connecting", "active")),
+                VoiceSessionControl.status.in_(("connecting", "active", "incomplete", "failed")),
+                VoiceSessionControl.finalization_confirmed.is_(False),
             )
         ).scalars().all()
         return [
@@ -98,6 +99,7 @@ async def supervise() -> None:
 
     owner_id = _owner_id()
     tasks: dict[str, asyncio.Task] = {}
+    retry_after: dict[str, float] = {}
     last_heartbeat = 0.0
     LOG.info("Voice supervisor starting; owner=%s", owner_id)
 
@@ -120,6 +122,8 @@ async def supervise() -> None:
                 call_id = session["call_id"]
                 task = tasks.get(call_id)
                 if task is None or task.done():
+                    if time.monotonic() < retry_after.get(call_id, 0.0):
+                        continue
                     ready = asyncio.Event()
                     state: dict = {}
                     task = asyncio.create_task(
@@ -138,6 +142,7 @@ async def supervise() -> None:
             for call_id, task in list(tasks.items()):
                 if task.done():
                     tasks.pop(call_id, None)
+                    retry_after[call_id] = time.monotonic() + 5.0
                     try:
                         task.result()
                     except asyncio.CancelledError:
