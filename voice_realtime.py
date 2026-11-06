@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Any
 
 import httpx
+from accounts import account_user
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -112,14 +114,22 @@ async def create_voice_session(body: VoiceSessionBody, request: Request) -> dict
         "session": session_config,
     }
 
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    user = account_user(request)
+    if user and user.get("id"):
+        # Stable, privacy-preserving identifier recommended for Realtime requests.
+        headers["OpenAI-Safety-Identifier"] = hashlib.sha256(
+            str(user["id"]).encode("utf-8")
+        ).hexdigest()
+
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0)) as client:
             response = await client.post(
                 OPENAI_CLIENT_SECRETS_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=payload,
             )
             response.raise_for_status()
