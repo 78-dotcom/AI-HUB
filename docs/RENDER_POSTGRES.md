@@ -20,6 +20,12 @@ Add `HUB_SIGNUP_CODE` as a long, randomly generated invitation code in the same 
 
 Add `OPENROUTER_API_KEY` in Render to enable the default OpenRouter provider. The current app will expose the configured default model `openai/gpt-4.1-mini` unless `OPENROUTER_MODEL` is set to another model ID supported by the account. Alternatively, configure `AI_PROVIDERS_JSON` for multiple OpenAI-compatible providers; see the provider configuration in the application code. Never put provider keys in browser code, GitHub, or chat.
 
+## Enable voice (optional)
+
+No separate Render Worker is required. In the existing AI-HUB web service's **Environment** settings, add `GEMINI_API_KEY` from Google AI Studio. This enables the Gemini Live adapter, subject to Google's free-tier quotas and data-use terms. Optionally add `OPENAI_API_KEY` to enable the paid OpenAI Realtime adapter. Both keys remain server-side. Model overrides: `GEMINI_LIVE_MODEL` and `OPENAI_REALTIME_MODEL`.
+
+The relay permits one active session per authenticated workspace/account per running service process and forcibly closes every session after 10 minutes. The browser client must send the provider's documented session-setup message. A 10-minute limit is not a $0.50 monetary guarantee; real-time audio usage metering and a hard spending cap are not implemented yet. Use provider-side budget controls where available.
+
 ## Verify after configuration
 
 - `https://ai-hub-w6h6.onrender.com/api/health` should return `{"status":"ok","app":"AI HUB"}`.
