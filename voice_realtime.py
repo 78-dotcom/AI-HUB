@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import os
-import threading
 import time
-from collections import deque
 from typing import Any
 
 import httpx
-from accounts import account_user
+from accounts import Base, _db, account_user
 from conversations import persist_voice_turn
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import BigInteger, Integer, String, and_, case, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import Mapped, mapped_column
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
@@ -26,9 +28,16 @@ CLIENT_SECRET_TTL_SECONDS = 60
 VOICE_SESSION_WINDOW_SECONDS = 60 * 60
 VOICE_SESSION_MAX_PER_WINDOW = 12
 VOICE_SESSION_MIN_INTERVAL_SECONDS = 5
-_voice_issue_lock = threading.Lock()
-_voice_issue_history: dict[str, deque[float]] = {}
 OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
+
+
+class VoiceSessionQuota(Base):
+    __tablename__ = "voice_session_quotas"
+
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_started_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    issued_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_issued_at: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
 
 class VoiceSessionBody(BaseModel):
@@ -55,36 +64,78 @@ def _voice_identity(request: Request) -> str:
 
 
 def _check_voice_session_rate_limit(request: Request, now: float | None = None) -> None:
-    current = time.monotonic() if now is None else now
+    """Atomically enforce persistent per-identity issuance limits in the shared SQL database."""
+    current = int(time.time() if now is None else now)
     identity = _voice_identity(request)
-    with _voice_issue_lock:
-        # Opportunistically discard identities whose rolling windows expired.
-        expired = [
-            key for key, stamps in _voice_issue_history.items()
-            if not stamps or current - stamps[-1] >= VOICE_SESSION_WINDOW_SECONDS
-        ]
-        for key in expired:
-            _voice_issue_history.pop(key, None)
+    with _db() as db:
+        dialect = db.bind.dialect.name
+        values = {
+            "identity_hash": identity,
+            "window_started_at": current,
+            "issued_count": 0,
+            "last_issued_at": 0,
+        }
+        if dialect == "postgresql":
+            insert_stmt = postgres_insert(VoiceSessionQuota).values(**values).on_conflict_do_nothing(
+                index_elements=["identity_hash"]
+            )
+        elif dialect == "sqlite":
+            insert_stmt = sqlite_insert(VoiceSessionQuota).values(**values).on_conflict_do_nothing(
+                index_elements=["identity_hash"]
+            )
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="Persistent voice session limits are not supported by the configured database.",
+            )
+        db.execute(insert_stmt)
 
-        stamps = _voice_issue_history.setdefault(identity, deque())
-        while stamps and current - stamps[0] >= VOICE_SESSION_WINDOW_SECONDS:
-            stamps.popleft()
+        expired_window = VoiceSessionQuota.window_started_at <= current - VOICE_SESSION_WINDOW_SECONDS
+        cooldown_elapsed = or_(
+            VoiceSessionQuota.last_issued_at == 0,
+            VoiceSessionQuota.last_issued_at <= current - VOICE_SESSION_MIN_INTERVAL_SECONDS,
+        )
+        can_issue = or_(
+            expired_window,
+            and_(
+                VoiceSessionQuota.issued_count < VOICE_SESSION_MAX_PER_WINDOW,
+                cooldown_elapsed,
+            ),
+        )
+        result = db.execute(
+            update(VoiceSessionQuota)
+            .where(VoiceSessionQuota.identity_hash == identity, can_issue)
+            .values(
+                window_started_at=case(
+                    (expired_window, current),
+                    else_=VoiceSessionQuota.window_started_at,
+                ),
+                issued_count=case(
+                    (expired_window, 1),
+                    else_=VoiceSessionQuota.issued_count + 1,
+                ),
+                last_issued_at=current,
+            )
+        )
+        if result.rowcount == 1:
+            return
 
-        if stamps and current - stamps[-1] < VOICE_SESSION_MIN_INTERVAL_SECONDS:
-            retry_after = max(1, int(VOICE_SESSION_MIN_INTERVAL_SECONDS - (current - stamps[-1]) + 0.999))
+        row = db.execute(
+            select(VoiceSessionQuota).where(VoiceSessionQuota.identity_hash == identity)
+        ).scalar_one()
+        if row.last_issued_at and current - row.last_issued_at < VOICE_SESSION_MIN_INTERVAL_SECONDS:
+            retry_after = max(1, VOICE_SESSION_MIN_INTERVAL_SECONDS - (current - row.last_issued_at))
             raise HTTPException(
                 status_code=429,
                 detail="Please wait a few seconds before starting another voice session.",
                 headers={"Retry-After": str(retry_after)},
             )
-        if len(stamps) >= VOICE_SESSION_MAX_PER_WINDOW:
-            retry_after = max(1, int(VOICE_SESSION_WINDOW_SECONDS - (current - stamps[0]) + 0.999))
-            raise HTTPException(
-                status_code=429,
-                detail="Voice session limit reached for this account. Please try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
-        stamps.append(current)
+        retry_after = max(1, VOICE_SESSION_WINDOW_SECONDS - (current - row.window_started_at))
+        raise HTTPException(
+            status_code=429,
+            detail="Voice session limit reached for this account. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 def _voice_auth(request: Request) -> None:
