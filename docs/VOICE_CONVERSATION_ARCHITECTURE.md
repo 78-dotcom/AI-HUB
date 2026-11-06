@@ -72,17 +72,18 @@ Before first use, explain in the selected UI language that microphone audio is s
 - [x] Keep the project API key on the server; return only a short-lived client secret.
 - [x] Allowlist Realtime models, configure server-side language/voice/turn detection, and cap each response at 512 output tokens.
 - [x] Add mocked contract tests for authentication, missing configuration, provider failures, and session configuration.
-- [ ] Add per-user concurrency, session-duration, and spend enforcement before public rollout.
+- [x] Add a conservative process-local issuance guard: 5-second reconnect cooldown and 12 session-token issuances per account per rolling hour, with automated tests.
+- [ ] Replace the process-local guard with shared persistent limits and enforce true active-session concurrency, duration, and spend before public rollout.
 - [ ] Add a provider-neutral adapter interface before expanding beyond the first provider.
 
-**Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. It is not a hard session-duration or spend cap. The client must always provide a visible Stop control, and server-side usage/budget enforcement remains a release requirement.
+**Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. The current 5-second/12-per-hour issuance guard is process-local and can reset on restart or be bypassed across multiple server instances. It reduces accidental rapid reconnects but is not a hard session-duration or spend cap. The client must always provide a visible Stop control, and shared server-side usage/budget enforcement remains a release requirement.
 
 ### Phase 3 — real-time provider integration
 - [x] Integrate the first provider using the documented OpenAI Realtime API.
 - [x] Add browser WebRTC connection setup, remote audio playback, explicit stop, server-VAD turn detection, and interruption.
 - [x] Persist paired transcript text for signed-in accounts; raw audio is not stored by AI HUB.
 - [ ] Add reconnect handling and automated tests for dropped calls, permission revocation, and budget exhaustion.
-- [ ] Add usage reconciliation and hard server-side duration/spend controls.
+- [ ] Add usage reconciliation and hard server-side duration/spend controls backed by shared state.
 
 ### Phase 4 — device validation and rollout
 - Test on real Android devices and iPhone/iPad, including Bluetooth headsets and speaker changes.
@@ -105,4 +106,4 @@ Before first use, explain in the selected UI language that microphone audio is s
 
 A first end-to-end code path is now present in the mobile web client and backend: an authenticated endpoint mints a short-lived OpenAI Realtime client secret, the browser connects directly over WebRTC, plays assistant audio, supports turn interruption, and stores text transcripts for signed-in accounts. Android and iOS shells now request microphone permission only for the trusted AI HUB HTTPS origin. The server key is never sent to the client and AI HUB does not store raw microphone audio.
 
-**Not yet verified in a real session:** Render still needs the server-side `OPENAI_API_KEY` environment variable; no real provider connection or physical Android/iPhone microphone test has been completed. Earlier CI on the previous UI commit passed 101 Python tests, JavaScript syntax checks, and an iOS simulator build; the latest native microphone changes are being rechecked. The 60-second ephemeral token expiry does not terminate an established call, and hard server-side call-duration/spend limits, reconnect handling, and usage reconciliation remain outstanding. Do not announce live voice as generally available until these release gates pass.
+**Not yet verified in a real session:** Render still needs the server-side `OPENAI_API_KEY` environment variable; no real provider connection or physical Android/iPhone microphone test has been completed. The previous code commit passed 101 Python tests, JavaScript syntax checks, an Android debug APK build, and an iOS simulator build. A new CI run is checking the additional session-issuance limits and tests. The 60-second ephemeral token expiry does not terminate an established call, and hard server-side call-duration/spend limits, reconnect handling, and usage reconciliation remain outstanding. Do not announce live voice as generally available until these release gates pass.
