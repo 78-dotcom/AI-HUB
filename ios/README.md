@@ -13,7 +13,7 @@ This is the first SwiftUI + WKWebView app shell for iPhone and iPad.
 ## Build
 The project is generated with XcodeGen:
 `brew install xcodegen`
-`xcodegen generate --spec ios/project.yml --project ios/AIHUB.xcodeproj`
+`xcodegen generate --spec ios/project.yml --project ios`
 `xcodebuild -project ios/AIHUB.xcodeproj -scheme AIHUB -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build`
 
 This is not yet a signed App Store release or a fully native offline client. It still relies on the hosted AI HUB web experience. Physical-device testing, accessibility review, file upload/download validation, signing, privacy disclosures, and App Store policy review are required before release.
