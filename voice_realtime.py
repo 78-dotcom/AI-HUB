@@ -13,7 +13,7 @@ from accounts import Base, _db, account_user
 from conversations import persist_voice_turn
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, Index, Integer, String, and_, case, or_, select, text, update
+from sqlalchemy import BigInteger, Float, Index, Integer, String, and_, case, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -291,10 +291,16 @@ VOICE_MAX_DURATION_SECONDS = 10 * 60
 VOICE_SIDEBAND_URL = "wss://api.openai.com/v1/realtime?call_id={call_id}"
 VOICE_CALL_ID_PATTERN = re.compile(r"^rtc_[A-Za-z0-9_-]{6,100}$")
 VOICE_CLOSE_FINALIZATION_SECONDS = 8
+VOICE_SESSION_MAX_ESTIMATED_COST_USD = 0.50
+VOICE_MODEL_RATES_USD_PER_MILLION = {
+    "gpt-realtime-2.1-mini": {"audio_input": 10.0, "audio_input_cached": 0.30, "text_input": 0.60, "text_input_cached": 0.06, "audio_output": 20.0, "text_output": 2.40},
+    "gpt-realtime-2.1": {"audio_input": 32.0, "audio_input_cached": 0.40, "text_input": 4.0, "text_input_cached": 0.40, "audio_output": 64.0, "text_output": 24.0},
+}
 
 
 class VoiceAttachBody(BaseModel):
     call_id: str = Field(min_length=10, max_length=110, pattern=r"^rtc_[A-Za-z0-9_-]{6,100}$")
+    model: str = Field(min_length=1, max_length=100)
 
 
 class VoiceSessionControl(Base):
@@ -306,6 +312,12 @@ class VoiceSessionControl(Base):
     ends_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="connecting")
     usage_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    audio_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    audio_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     closed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     finalization_confirmed: Mapped[bool] = mapped_column(default=False, nullable=False)
 
@@ -326,6 +338,12 @@ def _update_voice_control(
     usage_seconds: int | None = None,
     closed_at: int | None = None,
     finalization_confirmed: bool | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    audio_input_tokens: int | None = None,
+    audio_output_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+    close_reason: str | None = None,
 ) -> None:
     values: dict[str, Any] = {}
     if status is not None:
@@ -336,6 +354,18 @@ def _update_voice_control(
         values["closed_at"] = int(closed_at)
     if finalization_confirmed is not None:
         values["finalization_confirmed"] = bool(finalization_confirmed)
+    if input_tokens is not None:
+        values["input_tokens"] = max(0, int(input_tokens))
+    if output_tokens is not None:
+        values["output_tokens"] = max(0, int(output_tokens))
+    if audio_input_tokens is not None:
+        values["audio_input_tokens"] = max(0, int(audio_input_tokens))
+    if audio_output_tokens is not None:
+        values["audio_output_tokens"] = max(0, int(audio_output_tokens))
+    if estimated_cost_usd is not None:
+        values["estimated_cost_usd"] = max(0.0, float(estimated_cost_usd))
+    if close_reason is not None:
+        values["close_reason"] = close_reason
     if not values:
         return
     with _db() as db:
@@ -344,6 +374,40 @@ def _update_voice_control(
             .where(VoiceSessionControl.call_id == call_id)
             .values(**values)
         )
+
+
+def _response_usage_cost(model: str, event: Any) -> dict[str, Any] | None:
+    if not isinstance(event, dict) or event.get("type") != "response.done":
+        return None
+    response = event.get("response")
+    usage = response.get("usage") if isinstance(response, dict) else None
+    rates = VOICE_MODEL_RATES_USD_PER_MILLION.get(model)
+    if not isinstance(usage, dict) or not rates:
+        return None
+    input_details = usage.get("input_token_details") or {}
+    output_details = usage.get("output_token_details") or {}
+    cached_details = input_details.get("cached_tokens_details") or {}
+    audio_input = int(input_details.get("audio_tokens") or 0)
+    text_input = int(input_details.get("text_tokens") or 0)
+    cached_audio = min(audio_input, int(cached_details.get("audio_tokens") or 0))
+    cached_text = min(text_input, int(cached_details.get("text_tokens") or 0))
+    audio_output = int(output_details.get("audio_tokens") or 0)
+    text_output = int(output_details.get("text_tokens") or 0)
+    cost = (
+        (audio_input - cached_audio) * rates["audio_input"]
+        + cached_audio * rates["audio_input_cached"]
+        + (text_input - cached_text) * rates["text_input"]
+        + cached_text * rates["text_input_cached"]
+        + audio_output * rates["audio_output"]
+        + text_output * rates["text_output"]
+    ) / 1_000_000
+    return {
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "audio_input_tokens": audio_input,
+        "audio_output_tokens": audio_output,
+        "estimated_cost_usd": max(0.0, cost),
+    }
 
 
 def _event_usage_seconds(event: Any) -> int | None:
@@ -361,12 +425,16 @@ def _event_usage_seconds(event: Any) -> int | None:
 async def _run_voice_sideband(
     call_id: str,
     ends_at: int,
+    model: str,
     ready: asyncio.Event,
     state: dict[str, Any],
 ) -> None:
     """Attach a server-owned control socket and close the provider session at its deadline."""
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     usage_seconds: int | None = None
+    input_tokens = output_tokens = audio_input_tokens = audio_output_tokens = 0
+    estimated_cost_usd = 0.0
+    close_reason: str | None = None
     finalization_confirmed = False
     final_status = "incomplete"
     upstream = None
@@ -390,6 +458,7 @@ async def _run_voice_sideband(
             while True:
                 now = time.time()
                 if not close_requested and now >= ends_at:
+                    close_reason = "duration_limit"
                     await connection.send(json.dumps({"type": "session.close"}))
                     close_requested = True
                     close_deadline = now + VOICE_CLOSE_FINALIZATION_SECONDS
@@ -416,6 +485,26 @@ async def _run_voice_sideband(
                 if latest_usage is not None:
                     usage_seconds = latest_usage
                     _update_voice_control(call_id, usage_seconds=usage_seconds)
+                response_cost = _response_usage_cost(model, event)
+                if response_cost is not None:
+                    input_tokens += response_cost["input_tokens"]
+                    output_tokens += response_cost["output_tokens"]
+                    audio_input_tokens += response_cost["audio_input_tokens"]
+                    audio_output_tokens += response_cost["audio_output_tokens"]
+                    estimated_cost_usd += response_cost["estimated_cost_usd"]
+                    _update_voice_control(
+                        call_id,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        audio_input_tokens=audio_input_tokens,
+                        audio_output_tokens=audio_output_tokens,
+                        estimated_cost_usd=estimated_cost_usd,
+                    )
+                    if not close_requested and estimated_cost_usd >= VOICE_SESSION_MAX_ESTIMATED_COST_USD:
+                        close_reason = "spend_limit"
+                        await connection.send(json.dumps({"type": "session.close"}))
+                        close_requested = True
+                        close_deadline = time.time() + VOICE_CLOSE_FINALIZATION_SECONDS
                 if isinstance(event, dict) and event.get("type") == "session.closed":
                     final_usage = _event_usage_seconds(event)
                     if final_usage is not None:
@@ -446,6 +535,12 @@ async def _run_voice_sideband(
                 usage_seconds=usage_seconds,
                 closed_at=int(time.time()),
                 finalization_confirmed=finalization_confirmed,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                audio_input_tokens=audio_input_tokens,
+                audio_output_tokens=audio_output_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+                close_reason=close_reason,
             )
         except Exception:
             # The session is still closed upstream where possible; database reconciliation
@@ -461,6 +556,9 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
         raise HTTPException(status_code=503, detail="Realtime voice is not configured yet.")
     if not VOICE_CALL_ID_PATTERN.fullmatch(body.call_id):
         raise HTTPException(status_code=400, detail="Invalid voice call identifier.")
+    model = _realtime_model()
+    if body.model != model:
+        raise HTTPException(status_code=400, detail="Voice model does not match the configured provider model.")
 
     identity_hash = _voice_identity(request)
     now = int(time.time())
@@ -490,7 +588,7 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
     if tasks is None:
         tasks = {}
         request.app.state.voice_sideband_tasks = tasks
-    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, ready, state))
+    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, model, ready, state))
     tasks[body.call_id] = task
     task.add_done_callback(lambda completed, key=body.call_id, registry=tasks: registry.pop(key, None))
 
@@ -511,4 +609,5 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
         "ends_at": ends_at,
         "max_duration_seconds": VOICE_MAX_DURATION_SECONDS,
         "usage_tracking": "provider_reported",
+        "max_estimated_cost_usd": VOICE_SESSION_MAX_ESTIMATED_COST_USD if model in VOICE_MODEL_RATES_USD_PER_MILLION else None,
     }
