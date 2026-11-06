@@ -78,10 +78,11 @@ Before first use, explain in the selected UI language that microphone audio is s
 **Important token detail:** the 60-second client-secret expiry prevents creating new sessions after expiry; it does not terminate a session that has already started. It is not a hard session-duration or spend cap. The client must always provide a visible Stop control, and server-side usage/budget enforcement remains a release requirement.
 
 ### Phase 3 — real-time provider integration
-- Integrate one provider with documented real-time audio support.
-- Add streaming transcript, generated audio playback, cancellation, and interruption.
-- Persist transcript and usage metadata; do not persist raw audio by default.
-- Add tests for disconnects, reconnects, permission revocation, provider errors, and budget exhaustion.
+- [x] Integrate the first provider using the documented OpenAI Realtime API.
+- [x] Add browser WebRTC connection setup, remote audio playback, explicit stop, server-VAD turn detection, and interruption.
+- [x] Persist paired transcript text for signed-in accounts; raw audio is not stored by AI HUB.
+- [ ] Add reconnect handling and automated tests for dropped calls, permission revocation, and budget exhaustion.
+- [ ] Add usage reconciliation and hard server-side duration/spend controls.
 
 ### Phase 4 — device validation and rollout
 - Test on real Android devices and iPhone/iPad, including Bluetooth headsets and speaker changes.
@@ -102,4 +103,6 @@ Before first use, explain in the selected UI language that microphone audio is s
 
 ## Status
 
-This document defines the target design. It is not evidence that live voice streaming has been implemented. The existing browser microphone feature is speech-to-text dictation only; live two-way audio requires the later server gateway, provider adapter, and device work described above.
+A first end-to-end code path is now present in the mobile web client and backend: an authenticated endpoint mints a short-lived OpenAI Realtime client secret, the browser connects directly over WebRTC, plays assistant audio, supports turn interruption, and stores text transcripts for signed-in accounts. Android and iOS shells now request microphone permission only for the trusted AI HUB HTTPS origin. The server key is never sent to the client and AI HUB does not store raw microphone audio.
+
+**Not yet verified in a real session:** Render still needs the server-side `OPENAI_API_KEY` environment variable; no real provider connection or physical Android/iPhone microphone test has been completed. Earlier CI on the previous UI commit passed 101 Python tests, JavaScript syntax checks, and an iOS simulator build; the latest native microphone changes are being rechecked. The 60-second ephemeral token expiry does not terminate an established call, and hard server-side call-duration/spend limits, reconnect handling, and usage reconciliation remain outstanding. Do not announce live voice as generally available until these release gates pass.
