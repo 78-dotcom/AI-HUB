@@ -1,0 +1,314 @@
+import asyncio
+import json
+import os
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from fastapi import HTTPException
+
+from fastapi.testclient import TestClient
+
+import web_app
+import voice_realtime
+import voice_supervisor
+from accounts import _db
+
+
+class FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            request = httpx.Request("POST", voice_realtime.OPENAI_CLIENT_SECRETS_URL)
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError("provider error", request=request, response=response)
+
+    def json(self):
+        return self._payload
+
+
+class FakeAsyncClient:
+    def __init__(self, response):
+        self.response = response
+        self.request = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, **kwargs):
+        self.request = (url, kwargs)
+        return self.response
+
+
+
+
+class FakeSidebandConnection:
+    def __init__(self):
+        self.sent = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def send(self, message):
+        self.sent.append(json.loads(message))
+
+    async def recv(self):
+        return json.dumps({
+            "type": "session.closed",
+            "usage": {"seconds": 42},
+            "reason": "close_requested",
+        })
+
+
+class RealtimeVoiceApiTests(unittest.TestCase):
+    def setUp(self):
+        self.env = patch.dict(os.environ, {
+            "HUB_ACCESS_PASSWORD": "test-workspace-password",
+            "HUB_SESSION_SECRET": "test-session-secret",
+            "OPENAI_API_KEY": "test-openai-key",
+            "DATABASE_URL": "sqlite://",
+            "HUB_SIGNUP_CODE": "test-invite-code",
+            "OPENAI_REALTIME_MODEL": "gpt-realtime-2.1-mini",
+            "RENDER": "",
+        }, clear=False)
+        self.env.start()
+        web_app._login_failures.clear()
+        import accounts
+        accounts._engines.clear()
+        accounts._schema_ready.clear()
+        accounts._auth_failures.clear()
+        self.client = TestClient(web_app.app)
+        self.client.post("/api/login", json={"password": "test-workspace-password"})
+
+    def tearDown(self):
+        self.client.close()
+        web_app._login_failures.clear()
+        import accounts
+        for engine in accounts._engines.values():
+            engine.dispose()
+        accounts._engines.clear()
+        accounts._schema_ready.clear()
+        accounts._auth_failures.clear()
+        self.env.stop()
+
+    def test_capabilities_require_authentication(self):
+        self.client.post("/api/logout", json={})
+        response = self.client.get("/api/voice/capabilities")
+        self.assertEqual(response.status_code, 401)
+
+    def test_capabilities_report_configured_realtime_provider(self):
+        response = self.client.get("/api/voice/capabilities")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["realtime_voice"])
+        self.assertEqual(response.json()["model"], "gpt-realtime-2.1-mini")
+
+
+    def test_voice_session_cooldown_blocks_rapid_reconnects(self):
+        request = SimpleNamespace(cookies={"aihub_session": "signed-workspace-session"})
+        voice_realtime._check_voice_session_rate_limit(request, now=100.0)
+        with self.assertRaises(HTTPException) as caught:
+            voice_realtime._check_voice_session_rate_limit(request, now=102.0)
+        self.assertEqual(caught.exception.status_code, 429)
+        self.assertIn("Retry-After", caught.exception.headers)
+
+    def test_voice_session_rolling_hourly_limit(self):
+        request = SimpleNamespace(cookies={"aihub_session": "signed-workspace-session"})
+        for index in range(voice_realtime.VOICE_SESSION_MAX_PER_WINDOW):
+            voice_realtime._check_voice_session_rate_limit(request, now=100.0 + index * 6.0)
+        with self.assertRaises(HTTPException) as caught:
+            voice_realtime._check_voice_session_rate_limit(request, now=100.0 + 11 * 6.0 + 6.0)
+        self.assertEqual(caught.exception.status_code, 429)
+        voice_realtime._check_voice_session_rate_limit(
+            request, now=100.0 + voice_realtime.VOICE_SESSION_WINDOW_SECONDS + 10.0
+        )
+
+
+    def test_voice_session_quota_is_stored_in_shared_database(self):
+        request = SimpleNamespace(cookies={"aihub_session": "persistent-workspace-session"})
+        voice_realtime._check_voice_session_rate_limit(request, now=500.0)
+        identity = voice_realtime._voice_identity(request)
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionQuota, identity)
+            self.assertIsNotNone(row)
+            self.assertEqual(row.issued_count, 1)
+            self.assertEqual(row.last_issued_at, 500)
+
+    def test_session_mints_ephemeral_secret_without_exposing_project_key(self):
+        fake = FakeAsyncClient(FakeResponse({
+            "client_secret": {"value": "ek_test_ephemeral", "expires_at": 1_800_000_000}
+        }))
+        with patch.object(voice_realtime.httpx, "AsyncClient", return_value=fake):
+            response = self.client.post("/api/voice/session", json={"language": "ru"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["client_secret"], "ek_test_ephemeral")
+        self.assertNotIn("test-openai-key", response.text)
+        url, kwargs = fake.request
+        self.assertEqual(url, voice_realtime.OPENAI_CLIENT_SECRETS_URL)
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test-openai-key")
+        self.assertEqual(kwargs["json"]["expires_after"]["seconds"], 60)
+        session = kwargs["json"]["session"]
+        self.assertEqual(session["model"], "gpt-realtime-2.1-mini")
+        self.assertEqual(session["audio"]["input"]["transcription"]["language"], "ru")
+        self.assertTrue(session["audio"]["input"]["turn_detection"]["interrupt_response"])
+        self.assertEqual(session["audio"]["output"]["voice"], "marin")
+
+    def test_missing_provider_key_keeps_voice_disabled(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            response = self.client.post("/api/voice/session", json={"language": "en"})
+            capabilities = self.client.get("/api/voice/capabilities")
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(capabilities.json()["realtime_voice"])
+
+    def test_unsupported_model_is_rejected_before_provider_call(self):
+        with patch.dict(os.environ, {"OPENAI_REALTIME_MODEL": "not-a-realtime-model"}):
+            response = self.client.post("/api/voice/session", json={"language": "en"})
+        self.assertEqual(response.status_code, 503)
+
+    def test_voice_transcript_is_saved_as_text_for_account_users(self):
+        registered = self.client.post("/api/auth/register", json={
+            "email": "voice-user@example.com",
+            "password": "a-very-long-test-password",
+            "invite_code": "test-invite-code",
+        })
+        self.assertEqual(registered.status_code, 200)
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "gpt-realtime-2.1-mini",
+            "user_text": "Привет, AI HUB",
+            "assistant_text": "Привет! Чем могу помочь?",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["persisted"])
+        self.assertFalse(response.json()["raw_audio_stored_by_ai_hub"])
+        conversations = self.client.get("/api/conversations").json()["conversations"]
+        self.assertEqual(len(conversations), 1)
+        self.assertEqual([m["role"] for m in conversations[0]["messages"]], ["user", "assistant"])
+
+    def test_voice_transcript_is_not_saved_for_workspace_only_users(self):
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "gpt-realtime-2.1-mini",
+            "user_text": "Hello",
+            "assistant_text": "Hi there",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["persisted"])
+
+    def test_voice_transcript_rejects_unknown_models(self):
+        response = self.client.post("/api/voice/transcript", json={
+            "model": "not-realtime",
+            "user_text": "Hello",
+            "assistant_text": "Hi there",
+        })
+        self.assertEqual(response.status_code, 400)
+
+
+    def test_server_side_attach_enforces_session_close_and_persists_usage(self):
+        fake = FakeSidebandConnection()
+        with patch.object(voice_realtime.websockets, "connect", return_value=fake), \
+             patch.object(voice_realtime, "VOICE_MAX_DURATION_SECONDS", 0):
+            response = self.client.post("/api/voice/attach", json={
+                "call_id": "rtc_1234567890abcdef",
+                "model": "gpt-realtime-2.1-mini",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["server_controlled"])
+        self.assertEqual(response.json()["max_duration_seconds"], 0)
+        self.assertEqual(fake.sent[0]["type"], "session.close")
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionControl, "rtc_1234567890abcdef")
+            self.assertIsNotNone(row)
+            self.assertEqual(row.status, "ended")
+            self.assertEqual(row.usage_seconds, 42)
+            self.assertTrue(row.finalization_confirmed)
+            self.assertEqual(row.close_reason, "duration_limit")
+
+    def test_external_supervisor_lease_has_one_owner_and_recovers_after_expiry(self):
+        self.assertTrue(voice_supervisor.acquire_or_renew_lease("worker-a", now=100))
+        self.assertFalse(voice_supervisor.acquire_or_renew_lease("worker-b", now=105))
+        self.assertTrue(voice_supervisor.acquire_or_renew_lease("worker-b", now=121))
+        self.assertFalse(voice_supervisor.acquire_or_renew_lease("worker-a", now=122))
+
+    def test_external_mode_registers_session_for_worker_without_inline_sideband(self):
+        now = int(__import__("time").time())
+        with _db() as db:
+            db.add(voice_realtime.VoiceSupervisorLease(
+                lease_name="primary", owner_id="test-worker",
+                heartbeat_at=now, lease_expires_at=now + 60,
+            ))
+        with patch.dict(os.environ, {"VOICE_SUPERVISOR_MODE": "external"}):
+            with patch.object(voice_realtime.websockets, "connect") as connect:
+                response = self.client.post("/api/voice/attach", json={
+                    "call_id": "rtc_external_123456",
+                    "model": "gpt-realtime-2.1-mini",
+                })
+                connect.assert_not_called()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["supervisor_mode"], "external")
+        with _db() as db:
+            row = db.get(voice_realtime.VoiceSessionControl, "rtc_external_123456")
+            self.assertEqual(row.status, "connecting")
+
+    def test_server_side_voice_control_rejects_second_active_session(self):
+        identity = "a" * 64
+        with _db() as db:
+            db.add(voice_realtime.VoiceSessionControl(
+                call_id="rtc_active_session_123",
+                identity_hash=identity,
+                model="gpt-realtime-2.1-mini",
+                started_at=100,
+                ends_at=700,
+                status="active",
+            ))
+        with self.assertRaises(Exception):
+            with _db() as db:
+                db.add(voice_realtime.VoiceSessionControl(
+                    call_id="rtc_second_session_123",
+                    identity_hash=identity,
+                    model="gpt-realtime-2.1-mini",
+                    started_at=101,
+                    ends_at=701,
+                    status="connecting",
+                ))
+                db.flush()
+
+    def test_realtime_response_usage_cost_uses_cached_and_uncached_rates(self):
+        event = {
+            "type": "response.done",
+            "response": {
+                "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 500,
+                    "input_token_details": {
+                        "audio_tokens": 800,
+                        "text_tokens": 200,
+                        "cached_tokens_details": {"audio_tokens": 100, "text_tokens": 50},
+                    },
+                    "output_token_details": {"audio_tokens": 400, "text_tokens": 100},
+                },
+            },
+        }
+        usage = voice_realtime._response_usage_cost("gpt-realtime-2.1-mini", event)
+        self.assertEqual(usage["input_tokens"], 1000)
+        self.assertEqual(usage["output_tokens"], 500)
+        self.assertAlmostEqual(usage["estimated_cost_usd"], 0.015363)
+
+    def test_provider_failure_returns_safe_error(self):
+        fake = FakeAsyncClient(FakeResponse({}, status_code=401))
+        with patch.object(voice_realtime.httpx, "AsyncClient", return_value=fake):
+            response = self.client.post("/api/voice/session", json={"language": "en"})
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("test-openai-key", response.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

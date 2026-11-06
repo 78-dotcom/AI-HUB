@@ -224,3 +224,45 @@ def persist_chat(request: Request, conversation_id: str | None, model_key: str,
         ))
         row.updated_at = func.now()
         return row.id
+
+
+def persist_voice_turn(request: Request, conversation_id: str | None,
+                       model_id: str, user_text: str, assistant_text: str) -> str | None:
+    """Persist transcript text for an authenticated account; raw audio is never stored."""
+    user = account_user(request)
+    if not user:
+        return None
+    model_key = f"openai:{model_id}"
+    now = datetime.now(timezone.utc)
+    with _db() as db:
+        row = None
+        if conversation_id:
+            row = db.execute(select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user["id"],
+                Conversation.archived_at.is_(None),
+            )).scalar_one_or_none()
+            if not row:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+        if row is None:
+            row = Conversation(
+                id=secrets.token_hex(16),
+                user_id=user["id"],
+                title=user_text[:200] or "Voice conversation",
+                selected_model=model_key,
+            )
+            db.add(row)
+            db.flush()
+        else:
+            row.selected_model = model_key
+        db.add(Message(
+            id=secrets.token_hex(16), conversation_id=row.id, role="user",
+            content=user_text, provider_id="openai", model_id=model_id, created_at=now,
+        ))
+        db.add(Message(
+            id=secrets.token_hex(16), conversation_id=row.id, role="assistant",
+            content=assistant_text, provider_id="openai", model_id=model_id,
+            created_at=now + timedelta(microseconds=1),
+        ))
+        row.updated_at = func.now()
+        return row.id

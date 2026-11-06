@@ -22,3 +22,7 @@ jobs:
           pip install -r requirements.txt
       - name: Run test suite
         run: python -m unittest discover -s tests -v
+      - name: Build production Docker image
+        run: docker build -t ai-hub-ci .
+      - name: Verify production image imports application
+        run: docker run --rm --entrypoint python ai-hub-ci -c "import web_app; print('AI HUB production image imports successfully')"

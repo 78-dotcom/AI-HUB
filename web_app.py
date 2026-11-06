@@ -14,10 +14,20 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text as sql_text
 from pydantic import BaseModel, Field
 
-from accounts import account_user, revoke_account_session, router as accounts_router
+from accounts import _database_url, _engine, account_user, revoke_account_session, router as accounts_router
 from conversations import persist_chat, router as conversations_router
+from intelligence import public_routing_payload, select_model
+from future_lab import build_scenarios
+from project_memory import router as project_memory_router
+from wallet import router as credits_router
+from ai_ecosystem import router as ecosystem_router
+from web_research import router as web_research_router
+from ai_council import MAX_COUNCIL_BUDGET_USD, MAX_OUTPUT_TOKENS_PER_MODEL, actual_cost_usd, build_critic_prompt, estimate_council_cost
+from file_analysis import DocumentError, extract_document
+from voice_realtime import router as voice_router
 
 load_dotenv()
 
@@ -34,6 +44,11 @@ _login_failures: dict[str, list[float]] = {}
 app = FastAPI(title="AI HUB", version="0.2.0")
 app.include_router(accounts_router)
 app.include_router(conversations_router)
+app.include_router(project_memory_router)
+app.include_router(credits_router)
+app.include_router(ecosystem_router)
+app.include_router(web_research_router)
+app.include_router(voice_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
@@ -43,7 +58,7 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
     if os.getenv("RENDER"):
@@ -128,6 +143,8 @@ def load_models() -> dict[str, dict[str, Any]]:
                 "input_modalities": clean_strings(input_modalities),
                 "output_modalities": clean_strings(output_modalities),
                 "context_window": context_window,
+                "input_cost_per_1m_usd": metadata.get("input_cost_per_1m_usd"),
+                "output_cost_per_1m_usd": metadata.get("output_cost_per_1m_usd"),
                 "base_url": base, "api_key": key,
             }
     return models
@@ -197,6 +214,9 @@ def require_session(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Please sign in to AI HUB.")
 
 
+app.state.voice_auth = require_session
+
+
 class LoginBody(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
@@ -207,14 +227,85 @@ class ChatBody(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=36)
 
 
+class RoutingBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=MAX_TEXT)
+    preferred_model: str | None = Field(default=None, max_length=200)
+
+
+class FutureLabBody(BaseModel):
+    objective: str = Field(min_length=1, max_length=1000)
+    domain: str = Field(min_length=1, max_length=80)
+    horizon_months: int = Field(ge=1, le=120)
+    variables: list[dict[str, Any]] = Field(min_length=1, max_length=8)
+
+
+class CouncilBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=6000)
+    lead_model: str = Field(min_length=1, max_length=200)
+    critic_model: str = Field(min_length=1, max_length=200)
+    budget_cap_usd: float = Field(gt=0, le=MAX_COUNCIL_BUDGET_USD)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
 
 
+@app.get("/manifest.webmanifest")
+async def web_manifest() -> FileResponse:
+    return FileResponse(os.path.join(WEB_DIR, "manifest.webmanifest"), media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js")
+async def service_worker() -> FileResponse:
+    return FileResponse(
+        os.path.join(WEB_DIR, "service-worker.js"),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "app": "AI HUB"}
+
+
+
+@app.get("/api/health/ready")
+async def readiness() -> dict[str, Any]:
+    """Report database readiness without creating tables or exposing connection details."""
+    if not _database_url():
+        return {
+            "status": "degraded",
+            "database_configured": False,
+            "database_reachable": False,
+            "missing_tables": [],
+        }
+    try:
+        engine = _engine()
+        with engine.connect() as connection:
+            connection.execute(sql_text("SELECT 1"))
+            existing_tables = set(inspect(connection).get_table_names())
+        required_tables = {
+            "users", "account_sessions", "conversations", "messages",
+            "user_preferences", "usage_events", "project_memory_entries",
+            "credit_ledger_entries", "marketplace_assistants",
+        }
+        missing_tables = sorted(required_tables - existing_tables)
+        return {
+            "status": "ok" if not missing_tables else "degraded",
+            "database_configured": True,
+            "database_reachable": True,
+            "missing_tables": missing_tables,
+        }
+    except Exception:
+        # Never return exception text: drivers may include hostnames or credentials.
+        return {
+            "status": "degraded",
+            "database_configured": True,
+            "database_reachable": False,
+            "missing_tables": [],
+        }
 
 
 @app.get("/api/session")
@@ -274,10 +365,136 @@ async def models(request: Request) -> dict[str, Any]:
     return {"models": public_models, "default": os.getenv("DEFAULT_MODEL", "") or (public_models[0]["id"] if public_models else "")}
 
 
+@app.post("/api/intelligence/route")
+async def intelligence_route(body: RoutingBody, request: Request) -> dict[str, Any]:
+    """Recommend a configured model for a task without executing a provider call."""
+    require_session(request)
+    configured = load_models()
+    decision = select_model(configured, body.prompt, body.preferred_model)
+    return public_routing_payload(decision, configured)
+
+
+@app.post("/api/future-lab/scenarios")
+async def future_lab_scenarios(body: FutureLabBody, request: Request) -> dict[str, Any]:
+    """Create transparent downside/base/upside stress cases without provider calls."""
+    require_session(request)
+    try:
+        return build_scenarios(body.objective, body.domain, body.horizon_months, body.variables)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/council/run")
+async def run_ai_council(body: CouncilBody, request: Request) -> dict[str, Any]:
+    """Run an explicitly requested two-model review under a declared spend ceiling."""
+    require_session(request)
+    configured = load_models()
+    if body.lead_model == body.critic_model:
+        raise HTTPException(status_code=400, detail="Choose two different models for an independent review.")
+    lead = configured.get(body.lead_model)
+    critic = configured.get(body.critic_model)
+    if not lead or not critic:
+        raise HTTPException(status_code=400, detail="One or both selected models are not configured.")
+    for selected_model in (lead, critic):
+        if "text" not in selected_model.get("input_modalities", ["text"]):
+            raise HTTPException(status_code=400, detail="AI Council currently supports text-input models only.")
+    try:
+        estimate = estimate_council_cost(body.prompt, lead, critic)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if estimate["estimated_max_cost_usd"] > body.budget_cap_usd:
+        raise HTTPException(
+            status_code=402,
+            detail="$" + "{:.6f}; your cap is $".format(estimate["estimated_max_cost_usd"]) + "{:.6f}. Choose cheaper models or raise your cap.".format(body.budget_cap_usd),
+        )
+
+    lead_usage = None
+    critic_usage = None
+    lead_completed = False
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(55.0, connect=15.0)) as client:
+            lead_response = await client.post(
+                f'{lead["base_url"]}/chat/completions',
+                headers={"Authorization": f'Bearer {lead["api_key"]}', "Content-Type": "application/json"},
+                json={
+                    "model": lead["model"],
+                    "messages": [
+                        {"role": "system", "content": "Solve the user's task carefully. State assumptions and uncertainty. Do not invent facts or sources."},
+                        {"role": "user", "content": body.prompt},
+                    ],
+                    "temperature": 0.4,
+                    "max_tokens": MAX_OUTPUT_TOKENS_PER_MODEL,
+                },
+            )
+            lead_response.raise_for_status()
+            lead_data = lead_response.json()
+            proposed_answer = _extract_assistant_text(lead_data)
+            lead_usage = lead_data.get("usage")
+            lead_completed = True
+
+            critic_response = await client.post(
+                f'{critic["base_url"]}/chat/completions',
+                headers={"Authorization": f'Bearer {critic["api_key"]}', "Content-Type": "application/json"},
+                json={
+                    "model": critic["model"],
+                    "messages": [
+                        {"role": "system", "content": "You are the independent critic in AI HUB Council. Be rigorous, fair, and specific."},
+                        {"role": "user", "content": build_critic_prompt(body.prompt, proposed_answer)},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": MAX_OUTPUT_TOKENS_PER_MODEL,
+                },
+            )
+            critic_response.raise_for_status()
+            critic_data = critic_response.json()
+            critique = _extract_assistant_text(critic_data)
+            critic_usage = critic_data.get("usage")
+        critic_available = True
+    except httpx.HTTPStatusError as exc:
+        if not lead_completed:
+            raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
+        critique = "The critic model was unavailable. The proposed answer is shown without independent review."
+        critic_available = False
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+        if not lead_completed:
+            raise HTTPException(status_code=502, detail="The lead model could not complete the Council task.") from exc
+        critique = "The critic model could not complete its review. The proposed answer is shown without independent review."
+        critic_available = False
+
+    lead_actual = actual_cost_usd(lead_usage, lead)
+    critic_actual = actual_cost_usd(critic_usage, critic) if critic_available else 0.0
+    actual_total = (
+        None if lead_actual is None or (critic_available and critic_actual is None)
+        else lead_actual + (critic_actual or 0.0)
+    )
+    return {
+        "mode": "two_model_review",
+        "lead": {"model_id": body.lead_model, "model_name": lead["display_name"], "answer": proposed_answer},
+        "critic": {
+            "model_id": body.critic_model,
+            "model_name": critic["display_name"],
+            "available": critic_available,
+            "review": critique,
+        },
+        "estimated_max_cost_usd": estimate["estimated_max_cost_usd"],
+        "actual_cost_usd": round(actual_total, 8) if actual_total is not None else None,
+        "budget_cap_usd": body.budget_cap_usd,
+        "model_calls": 2 if critic_available else 1,
+        "note": "Two-model review, not guaranteed consensus. Verify important claims independently.",
+    }
+
+
 @app.post("/api/chat")
 async def chat(body: ChatBody, request: Request) -> dict[str, str]:
     require_session(request)
-    model = load_models().get(body.model)
+    configured_models = load_models()
+    model_key = body.model
+    if body.model == "auto":
+        routing = select_model(configured_models, body.messages[-1].get("content", ""))
+        if routing is None:
+            raise HTTPException(status_code=503, detail="No AI providers are configured yet.")
+        model_key = routing.model_id
+    model = configured_models.get(model_key)
     if not model:
         raise HTTPException(status_code=400, detail="That model is not configured.")
     messages: list[dict[str, str]] = []
@@ -300,10 +517,29 @@ async def chat(body: ChatBody, request: Request) -> dict[str, str]:
             result.raise_for_status()
             data = result.json()
         answer = _extract_assistant_text(data)
-        conversation_id = persist_chat(request, body.conversation_id, body.model, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
-        return {"answer": answer, "conversation_id": conversation_id}
+        conversation_id = persist_chat(request, body.conversation_id, model_key, messages, answer, data.get("usage") if isinstance(data.get("usage"), dict) else None)
+        return {"answer": answer, "conversation_id": conversation_id, "selected_model": model_key}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         raise HTTPException(status_code=502, detail=f"AI provider returned HTTP {status}. Check the API key, model access and provider balance.") from exc
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail="Could not get a response from the AI provider. Please try again.") from exc
+
+
+class DocumentExtractBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=11_184_820)
+
+
+@app.post("/api/files/extract")
+async def extract_uploaded_document(body: DocumentExtractBody, request: Request) -> dict[str, Any]:
+    """Extract text from a supported upload without persisting the uploaded file."""
+    require_session(request)
+    try:
+        result = extract_document(body.filename, body.content_base64)
+    except DocumentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+

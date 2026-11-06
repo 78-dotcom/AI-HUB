@@ -38,6 +38,35 @@ class WebAppAccessTests(unittest.TestCase):
         self.assertEqual(response.headers["x-frame-options"], "DENY")
         self.assertEqual(response.headers["cache-control"], "no-store")
 
+
+    def test_readiness_reports_unconfigured_database_without_secrets(self):
+        with patch.dict(os.environ, {"DATABASE_URL": ""}, clear=False):
+            response = self.client.get("/api/health/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "status": "degraded",
+            "database_configured": False,
+            "database_reachable": False,
+            "missing_tables": [],
+        })
+        self.assertNotIn("password", response.text.lower())
+
+    def test_readiness_checks_database_and_required_tables(self):
+        import accounts
+        from accounts import Base
+
+        with patch.dict(os.environ, {"DATABASE_URL": "sqlite://"}, clear=False):
+            accounts._engines.clear()
+            engine = accounts._engine()
+            Base.metadata.create_all(engine)
+            response = self.client.get("/api/health/ready")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "ok")
+            self.assertTrue(response.json()["database_reachable"])
+            self.assertEqual(response.json()["missing_tables"], [])
+            engine.dispose()
+            accounts._engines.clear()
+
     def test_models_require_authentication(self):
         response = self.client.get("/api/models")
         self.assertEqual(response.status_code, 401)
@@ -105,6 +134,144 @@ class WebAppAccessTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
                     web_app._extract_assistant_text(payload)
+
+    def test_intelligence_route_requires_authentication(self):
+        response = self.client.post(
+            "/api/intelligence/route", json={"prompt": "Help me debug Python"}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_intelligence_route_selects_specialist_without_exposing_secrets(self):
+        self.login()
+        models = {
+            "provider:general": {
+                "id": "provider:general", "provider": "provider",
+                "provider_name": "Provider", "model": "general",
+                "display_name": "General", "category": "general",
+                "capabilities": ["chat"], "api_key": "private-key",
+                "base_url": "https://private.example",
+            },
+            "provider:coder": {
+                "id": "provider:coder", "provider": "provider",
+                "provider_name": "Provider", "model": "coder",
+                "display_name": "Coder", "category": "coding",
+                "capabilities": ["chat", "code"], "api_key": "private-key",
+                "base_url": "https://private.example",
+            },
+        }
+        with patch.object(web_app, "load_models", return_value=models):
+            response = self.client.post(
+                "/api/intelligence/route",
+                json={"prompt": "Please debug this Python code"},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["task"], "coding")
+        self.assertEqual(payload["selected_model"]["id"], "provider:coder")
+        self.assertNotIn("api_key", response.text)
+        self.assertNotIn("private.example", response.text)
+
+    def test_intelligence_route_reports_no_configured_models(self):
+        self.login()
+        with patch.object(web_app, "load_models", return_value={}):
+            response = self.client.post(
+                "/api/intelligence/route", json={"prompt": "Hello"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
+    def test_auto_chat_routes_to_specialist_model(self):
+        self.login()
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "Routed answer"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+                }
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                self.requested_model = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, headers, json):
+                self.requested_model = json["model"]
+                return FakeResponse()
+
+        models = {
+            "provider:general": {
+                "id": "provider:general", "provider": "provider",
+                "provider_name": "Provider", "model": "general",
+                "display_name": "General", "category": "general",
+                "capabilities": ["chat"], "base_url": "https://api.example.test/v1",
+                "api_key": "private-key",
+            },
+            "provider:coder": {
+                "id": "provider:coder", "provider": "provider",
+                "provider_name": "Provider", "model": "coder",
+                "display_name": "Coder", "category": "coding",
+                "capabilities": ["chat", "code"], "base_url": "https://api.example.test/v1",
+                "api_key": "private-key",
+            },
+        }
+        with patch.object(web_app, "load_models", return_value=models), patch.object(web_app.httpx, "AsyncClient", FakeAsyncClient), patch.object(web_app, "persist_chat", return_value="test-conversation-id"):
+            response = self.client.post(
+                "/api/chat",
+                json={"model": "auto", "messages": [
+                    {"role": "user", "content": "Please debug this Python code"}
+                ]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["answer"], "Routed answer")
+        self.assertEqual(response.json()["selected_model"], "provider:coder")
+        self.assertEqual(response.json()["conversation_id"], "test-conversation-id")
+
+
+    def test_future_lab_scenarios_require_authentication(self):
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 12, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 401)
+
+    def test_future_lab_scenarios_returns_transparent_cases(self):
+        self.login()
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 12, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["mode"], "assumption_stress_test")
+        self.assertEqual(payload["scenarios"][0]["variables"][0]["projected_value"], 8000)
+        self.assertEqual(payload["scenarios"][2]["variables"][0]["projected_value"], 13000)
+        self.assertIn("No probabilities", payload["assumptions"][2])
+
+    def test_future_lab_rejects_invalid_horizon(self):
+        self.login()
+        response = self.client.post("/api/future-lab/scenarios", json={
+            "objective": "Launch an online shop", "domain": "business",
+            "horizon_months": 0, "variables": [{
+                "name": "monthly revenue", "current_value": 10000,
+                "downside_change_pct": -20, "upside_change_pct": 30,
+            }],
+        })
+        self.assertEqual(response.status_code, 422)
 
     def test_chat_requires_authentication(self):
         response = self.client.post(
