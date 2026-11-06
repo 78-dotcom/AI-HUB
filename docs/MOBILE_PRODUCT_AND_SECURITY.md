@@ -57,4 +57,4 @@ Do not call the app production-ready until all of the following pass:
 
 ## Current implementation status
 
-The current branch contains the first Android WebView shell and an installable web app foundation. The mobile history drawer, copy-answer action, and provider disclosure are early UX improvements. These are not proof of complete security or native feature parity. The Android build, device testing, iOS package, robust account controls, and the release gates above remain outstanding.
+The current branch contains an installable web app foundation, an early Android WebView shell, and an early SwiftUI/WKWebView iOS shell. The mobile history drawer, copy-answer action, provider disclosure, and system document pickers are early UX improvements. These are not proof of complete security or native feature parity. CI builds are compile checks only; physical-device testing, iOS simulator build verification, robust account controls, and the release gates above remain outstanding.
