@@ -48,7 +48,7 @@ def gemini_session_cost(started_at: int, now: int | None = None) -> float:
     output audio for every minute and is deliberately conservative.
     """
     tier = os.getenv("GEMINI_BILLING_TIER", "free").strip().lower()
-    if tier == "free":
+    if tier == "free" and gemini_model() == GEMINI_FREE_TIER_MODEL:
         return 0.0
     current = int(time.time() if now is None else now)
     elapsed_minutes = max(0, min(current - started_at, VOICE_MAX_DURATION_SECONDS)) / 60
@@ -101,7 +101,10 @@ async def voice_providers(request: Request) -> dict[str, object]:
             "id": "gemini",
             "name": "Gemini Live",
             "model": gemini_model(),
-            "pricing": os.getenv("GEMINI_BILLING_TIER", "free").strip().lower(),
+            "pricing": (
+                "free" if os.getenv("GEMINI_BILLING_TIER", "free").strip().lower() == "free"
+                and gemini_model() == GEMINI_FREE_TIER_MODEL else "paid_estimate"
+            ),
             "free_tier_eligible": gemini_model() == GEMINI_FREE_TIER_MODEL,
         })
     if os.getenv("OPENAI_API_KEY", "").strip():
