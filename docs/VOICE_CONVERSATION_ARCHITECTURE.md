@@ -67,6 +67,8 @@ Before first use, explain in the selected UI language that microphone audio is s
 
 ### Phase 2 — server contracts
 - [x] Add an authenticated Realtime capability endpoint and session-token broker.
+- [x] Add Android WebView runtime microphone permission handling restricted to the trusted AI HUB HTTPS origin.
+- [x] Add iOS WebKit microphone permission prompting restricted to the trusted AI HUB HTTPS origin, with a clear system usage description.
 - [x] Keep the project API key on the server; return only a short-lived client secret.
 - [x] Allowlist Realtime models, configure server-side language/voice/turn detection, and cap each response at 512 output tokens.
 - [x] Add mocked contract tests for authentication, missing configuration, provider failures, and session configuration.
