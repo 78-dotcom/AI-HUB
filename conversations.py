@@ -227,12 +227,13 @@ def persist_chat(request: Request, conversation_id: str | None, model_key: str,
 
 
 def persist_voice_turn(request: Request, conversation_id: str | None,
-                       model_id: str, user_text: str, assistant_text: str) -> str | None:
+                       model_id: str, user_text: str, assistant_text: str,
+                       provider_id: str = "openai") -> str | None:
     """Persist transcript text for an authenticated account; raw audio is never stored."""
     user = account_user(request)
     if not user:
         return None
-    model_key = f"openai:{model_id}"
+    model_key = f"{provider_id}:{model_id}"
     now = datetime.now(timezone.utc)
     with _db() as db:
         row = None
@@ -257,11 +258,11 @@ def persist_voice_turn(request: Request, conversation_id: str | None,
             row.selected_model = model_key
         db.add(Message(
             id=secrets.token_hex(16), conversation_id=row.id, role="user",
-            content=user_text, provider_id="openai", model_id=model_id, created_at=now,
+            content=user_text, provider_id=provider_id, model_id=model_id, created_at=now,
         ))
         db.add(Message(
             id=secrets.token_hex(16), conversation_id=row.id, role="assistant",
-            content=assistant_text, provider_id="openai", model_id=model_id,
+            content=assistant_text, provider_id=provider_id, model_id=model_id,
             created_at=now + timedelta(microseconds=1),
         ))
         row.updated_at = func.now()

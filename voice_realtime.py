@@ -50,6 +50,7 @@ class VoiceSessionBody(BaseModel):
 class VoiceTranscriptBody(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=36)
     model: str = Field(min_length=1, max_length=100)
+    provider: str = Field(default="openai", pattern="^(openai|gemini)$")
     user_text: str = Field(min_length=1, max_length=12000)
     assistant_text: str = Field(min_length=1, max_length=12000)
 
@@ -276,10 +277,12 @@ async def create_voice_session(body: VoiceSessionBody, request: Request) -> dict
 async def save_voice_transcript(body: VoiceTranscriptBody, request: Request) -> dict[str, Any]:
     """Save text transcript only; never accept or store microphone audio."""
     _voice_auth(request)
-    if body.model not in SUPPORTED_REALTIME_MODELS:
+    supported = body.model in SUPPORTED_REALTIME_MODELS if body.provider == "openai" else body.model == "gemini-3.8-live"
+    if not supported:
         raise HTTPException(status_code=400, detail="Unsupported realtime voice model.")
     conversation_id = persist_voice_turn(
-        request, body.conversation_id, body.model, body.user_text, body.assistant_text
+        request, body.conversation_id, body.model, body.user_text, body.assistant_text,
+        provider_id=body.provider,
     )
     return {
         "conversation_id": conversation_id,

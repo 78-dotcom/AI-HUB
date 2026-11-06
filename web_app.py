@@ -28,6 +28,7 @@ from web_research import router as web_research_router
 from ai_council import MAX_COUNCIL_BUDGET_USD, MAX_OUTPUT_TOKENS_PER_MODEL, actual_cost_usd, build_critic_prompt, estimate_council_cost
 from file_analysis import DocumentError, extract_document
 from voice_realtime import router as voice_router
+from voice_gemini import router as gemini_voice_router
 
 load_dotenv()
 
@@ -49,6 +50,7 @@ app.include_router(credits_router)
 app.include_router(ecosystem_router)
 app.include_router(web_research_router)
 app.include_router(voice_router)
+app.include_router(gemini_voice_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
