@@ -14,6 +14,10 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_BILLING_TIER
+        value: free
       - key: AI_PROVIDERS_JSON
         value: "[]"
       - key: HUB_ACCESS_PASSWORD
