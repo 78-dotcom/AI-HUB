@@ -460,6 +460,22 @@ async def _run_voice_sideband(
     input_tokens = output_tokens = audio_input_tokens = audio_output_tokens = 0
     model_usage_cost_usd = 0.0
     estimated_cost_usd = 0.0
+    try:
+        with _db() as db:
+            previous = db.get(VoiceSessionControl, call_id)
+            if previous is not None:
+                usage_seconds = previous.usage_seconds
+                input_tokens = previous.input_tokens
+                output_tokens = previous.output_tokens
+                audio_input_tokens = previous.audio_input_tokens
+                audio_output_tokens = previous.audio_output_tokens
+                prior_total = float(previous.estimated_cost_usd or 0.0)
+                prior_transcription = max(0.0, min(time.time() - started_at, VOICE_MAX_DURATION_SECONDS)) / 60.0 * VOICE_TRANSCRIPTION_USD_PER_MINUTE
+                model_usage_cost_usd = max(0.0, prior_total - prior_transcription)
+                estimated_cost_usd = prior_total
+    except Exception:
+        # Provider control must still be attempted if usage-history reads fail.
+        pass
     close_reason: str | None = None
     finalization_confirmed = False
     final_status = "incomplete"
