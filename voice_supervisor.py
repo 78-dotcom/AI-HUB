@@ -76,7 +76,6 @@ def active_sessions() -> list[VoiceSessionControl]:
         rows = db.execute(
             select(VoiceSessionControl).where(
                 VoiceSessionControl.status.in_(("connecting", "active")),
-                VoiceSessionControl.ends_at > int(time.time()),
             )
         ).scalars().all()
         return [
@@ -107,7 +106,12 @@ async def supervise() -> None:
             now = time.monotonic()
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 if not acquire_or_renew_lease(owner_id):
-                    LOG.warning("Supervisor lease is held by another process; waiting.")
+                    LOG.warning("Supervisor lease was lost; stopping owned sideband tasks.")
+                    for task in tasks.values():
+                        task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks.values(), return_exceptions=True)
+                    tasks.clear()
                     await asyncio.sleep(HEARTBEAT_SECONDS)
                     continue
                 last_heartbeat = now
