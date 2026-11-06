@@ -12,6 +12,8 @@ services:
     envVars:
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: AI_PROVIDERS_JSON
         value: "[]"
       - key: HUB_ACCESS_PASSWORD
