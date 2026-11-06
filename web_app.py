@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from accounts import account_user, revoke_account_session, router as accounts_router
 from conversations import persist_chat, router as conversations_router
+from voice import router as voice_router
 
 load_dotenv()
 
@@ -34,6 +35,7 @@ _login_failures: dict[str, list[float]] = {}
 app = FastAPI(title="AI HUB", version="0.2.0")
 app.include_router(accounts_router)
 app.include_router(conversations_router)
+app.include_router(voice_router)
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
