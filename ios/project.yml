@@ -1,0 +1,22 @@
+name: AIHUB
+options:
+  bundleIdPrefix: com.aihub
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  AIHUB:
+    type: application
+    platform: iOS
+    sources:
+      - path: AIHUB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aihub.ios
+        PRODUCT_NAME: "AI HUB"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "AI HUB"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: "5.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
