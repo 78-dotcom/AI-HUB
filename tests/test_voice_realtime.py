@@ -237,6 +237,7 @@ class RealtimeVoiceApiTests(unittest.TestCase):
             db.add(voice_realtime.VoiceSessionControl(
                 call_id="rtc_active_session_123",
                 identity_hash=identity,
+                model="gpt-realtime-2.1-mini",
                 started_at=100,
                 ends_at=700,
                 status="active",
@@ -246,6 +247,7 @@ class RealtimeVoiceApiTests(unittest.TestCase):
                 db.add(voice_realtime.VoiceSessionControl(
                     call_id="rtc_second_session_123",
                     identity_hash=identity,
+                    model="gpt-realtime-2.1-mini",
                     started_at=101,
                     ends_at=701,
                     status="connecting",
