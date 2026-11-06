@@ -22,7 +22,21 @@ class GeminiVoiceAdapterTests(unittest.TestCase):
         }, clear=False):
             self.assertAlmostEqual(voice_gemini.gemini_session_cost(100, now=700), 0.23)
 
-    def test_usage_metadata_is_normalized(self):
+    def test_usage_metadata_uses_documented_live_response_token_field(self):
+        self.assertEqual(
+            voice_gemini._usage_counts({"usageMetadata": {
+                "promptTokenCount": 123, "responseTokenCount": 45,
+            }}),
+            (123, 45),
+        )
+        self.assertEqual(
+            voice_gemini._usage_counts({"usage_metadata": {
+                "prompt_token_count": 77, "response_token_count": 22,
+            }}),
+            (77, 22),
+        )
+
+    def test_usage_metadata_keeps_legacy_response_token_fallback(self):
         self.assertEqual(
             voice_gemini._usage_counts({"usageMetadata": {
                 "promptTokenCount": 123, "candidatesTokenCount": 45,
