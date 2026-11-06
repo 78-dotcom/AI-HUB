@@ -6,6 +6,9 @@ on:
       - "android/**"
       - "web/**"
       - "web_app.py"
+      - "accounts.py"
+      - "tests/**"
+      - "requirements.txt"
       - "docs/MOBILE_PRODUCT_AND_SECURITY.md"
       - ".github/workflows/android-build.yml"
   push:
