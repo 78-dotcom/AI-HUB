@@ -304,7 +304,12 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
             finalization_confirmed = False
             with suppress(Exception):
                 await websocket.close(code=1000, reason="Gemini Live session ended")
-    except (WebSocketDisconnect, websockets.ConnectionClosed):
+    except WebSocketDisconnect:
+        # A client disconnect is not proof that Gemini acknowledged session closure.
+        final_status = "ended"
+        finalization_confirmed = False
+    except websockets.ConnectionClosed:
+        # The upstream provider closed its WebSocket; record the observed closure.
         final_status = "ended"
         finalization_confirmed = True
     except Exception:
