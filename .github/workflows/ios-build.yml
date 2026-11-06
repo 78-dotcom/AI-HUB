@@ -4,12 +4,10 @@ on:
   pull_request:
     paths:
       - "ios/**"
-      - ".github/workflows/ios-build.yml"
   push:
     branches: [main]
     paths:
       - "ios/**"
-      - ".github/workflows/ios-build.yml"
 
 permissions:
   contents: read
