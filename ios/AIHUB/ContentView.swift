@@ -103,6 +103,21 @@ private struct AIHUBWebView: UIViewRepresentable {
             }
         }
 
+        func webView(_ webView: WKWebView,
+                     requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                     initiatedByFrame frame: WKFrameInfo,
+                     type: WKMediaCaptureType,
+                     decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            let trustedOrigin = origin.protocol.lowercased() == "https" &&
+                origin.host.lowercased() == appHost &&
+                origin.port == 443
+            guard trustedOrigin, type == .microphone else {
+                decisionHandler(.deny)
+                return
+            }
+            decisionHandler(.prompt)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loadError = nil
         }
