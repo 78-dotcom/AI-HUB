@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import time
+import threading
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -21,6 +22,8 @@ ACCOUNT_TTL = 60 * 60 * 24 * 14
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _password_hasher = PasswordHasher()
 _engines: dict[str, object] = {}
+_schema_ready: set[int] = set()
+_schema_lock = threading.Lock()
 _auth_failures: dict[str, list[float]] = {}
 _DUMMY_HASH = _password_hasher.hash("AI-HUB-invalid-account-placeholder")
 router = APIRouter(prefix="/api/auth", tags=["accounts"])
@@ -85,7 +88,14 @@ def _engine():
 @contextmanager
 def _db() -> Iterator[object]:
     engine = _engine()
-    Base.metadata.create_all(engine)
+    # Bootstrap the account tables once per process/engine, not on every request.
+    # Production schema evolution still requires explicit versioned migrations.
+    engine_key = id(engine)
+    if engine_key not in _schema_ready:
+        with _schema_lock:
+            if engine_key not in _schema_ready:
+                Base.metadata.create_all(engine)
+                _schema_ready.add(engine_key)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = factory()
     try:

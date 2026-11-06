@@ -1,0 +1,27 @@
+name: iOS app checks
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios/project.yml --project ios
+      - name: Build iOS simulator app
+        run: xcodebuild -project ios/AIHUB.xcodeproj -scheme AIHUB -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build

@@ -16,6 +16,17 @@ AI HUB is a multilingual workspace for using AI models from multiple providers t
 
 The live Render service currently runs the web app from the repository's `Dockerfile`. The Telegram bot prototype in `app.py` is separate and is not part of that web deployment.
 
+## Free-first live voice
+
+AI HUB supports two live voice providers from the same voice control:
+
+- **Gemini Live** — default free-first option using `gemini-3.8-live`, subject to Google AI Studio free-tier quotas and data-use terms.
+- **OpenAI Realtime** — optional paid alternative.
+
+The Gemini API key stays in Render and is used only by the authenticated server-side WebSocket relay. Both providers use the shared database-backed session controls, per-identity rate limits, and a hard 10-minute session timeout. Gemini does not require a separate Render Worker. The paid-tier Gemini cost estimate is conservative and not an invoice guarantee; the free-tier path is zero-priced within Google's quota. Google may use free-tier submitted content to improve its products, so do not send sensitive or confidential material through it.
+
+Add `GEMINI_API_KEY` in the Render service environment. Keep `GEMINI_BILLING_TIER=free` only if the Google AI Studio project is on the free tier; set it to `paid` if billing is enabled. `GEMINI_LIVE_MODEL` and `GEMINI_LIVE_VOICE` are optional overrides. The existing OpenAI provider remains available when `OPENAI_API_KEY` is configured.
+
 ## PostgreSQL database foundation
 
 The Render project includes a provisioned PostgreSQL database named `AI-HUB-DB` in the same Oregon region as the web service. Account-owned chat history, messages, preferences, and usage events are wired to PostgreSQL and sync across sessions once the database's **Internal Database URL** is set as `DATABASE_URL` in the Render service environment.
