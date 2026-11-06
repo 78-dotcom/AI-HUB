@@ -16,6 +16,20 @@ AI HUB is a multilingual workspace for using AI models from multiple providers t
 
 The live Render service currently runs the web app from the repository's `Dockerfile`. The Telegram bot prototype in `app.py` is separate and is not part of that web deployment.
 
+## Voice architecture (new)
+
+The optional voice relay runs inside the existing FastAPI web service; it does not require a separate Render Worker:
+
+- `GET /api/voice/providers` lists voice providers with configured server-side credentials.
+- `WS /api/voice/gemini` relays Gemini Live messages.
+- `WS /api/voice/openai` relays OpenAI Realtime messages.
+- API keys remain server-side. One active voice session per authenticated account/workspace is allowed per running process.
+- Every connection is forcibly closed after 10 minutes.
+
+Set `GEMINI_API_KEY` in Render to enable Gemini. The default model is `gemini-3.1-flash-live-preview`; Google documents this model as eligible for the Gemini Developer API free tier, subject to quotas. The free tier may use submitted content to improve Google products, so do not send sensitive or confidential conversations through it. Optionally set `OPENAI_API_KEY` to enable the paid OpenAI Realtime adapter. Model overrides are `GEMINI_LIVE_MODEL` and `OPENAI_REALTIME_MODEL`.
+
+The backend relay is the first implementation stage: the browser microphone/audio interface and end-to-end audio tests are not yet included. The client must send the selected provider's documented session-setup message after connecting. The 10-minute limit is not a $0.50 spending guarantee. A hard monetary cap is not implemented because Gemini Live does not support the standard Count Tokens API; a reliable cap requires provider-reported billing/usage data. Configure provider-side budgets where available.
+
 ## PostgreSQL database foundation
 
 The Render project includes a provisioned PostgreSQL database named `AI-HUB-DB` in the same Oregon region as the web service. Account-owned chat history, messages, preferences, and usage events are wired to PostgreSQL and sync across sessions once the database's **Internal Database URL** is set as `DATABASE_URL` in the Render service environment.
