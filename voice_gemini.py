@@ -182,6 +182,12 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
     final_status = "failed"
     finalization_confirmed = False
     input_tokens = output_tokens = 0
+    language = websocket.query_params.get("language", "en").lower()
+    language_names = {
+        "en": "English", "ru": "Russian", "es": "Spanish",
+        "fr": "French", "de": "German",
+    }
+    response_language = language_names.get(language, "the user's language")
     try:
         upstream = await websockets.connect(
             _gemini_url(),
@@ -208,7 +214,7 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
                     "parts": [{
                         "text": (
                             "You are the live voice assistant inside AI HUB. "
-                            "Speak naturally and clearly. Respond in the user's language. "
+                            f"Speak naturally and clearly in {response_language}, unless the user asks otherwise. "
                             "Keep answers conversational and let the user interrupt you."
                         )
                     }]
@@ -247,6 +253,10 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
                         event = json.loads(message)
                     except ValueError:
                         event = None
+                    if isinstance(event, dict) and "setupComplete" in event:
+                        await websocket.send_json({
+                            "aiHub": {"type": "session.started", "started_at": started_at, "ends_at": ends_at}
+                        })
                     counts = _usage_counts(event)
                     if counts:
                         input_tokens, output_tokens = counts
@@ -263,8 +273,9 @@ async def gemini_live_relay(websocket: WebSocket) -> None:
             asyncio.create_task(client_to_google()),
             asyncio.create_task(google_to_client()),
         }
+        remaining_seconds = max(0, ends_at - int(time.time()))
         done, pending = await asyncio.wait(
-            tasks, timeout=VOICE_MAX_DURATION_SECONDS,
+            tasks, timeout=remaining_seconds,
             return_when=asyncio.FIRST_COMPLETED,
         )
         if pending:
