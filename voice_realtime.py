@@ -26,8 +26,6 @@ SUPPORTED_LANGUAGES = {"en", "ru", "es", "fr", "de"}
 SUPPORTED_REALTIME_MODELS = {
     "gpt-realtime-2.1-mini",
     "gpt-realtime-2.1",
-    "gpt-realtime-2",
-    "gpt-realtime-1.5",
 }
 CLIENT_SECRET_TTL_SECONDS = 60
 VOICE_SESSION_WINDOW_SECONDS = 60 * 60
@@ -292,6 +290,7 @@ VOICE_SIDEBAND_URL = "wss://api.openai.com/v1/realtime?call_id={call_id}"
 VOICE_CALL_ID_PATTERN = re.compile(r"^rtc_[A-Za-z0-9_-]{6,100}$")
 VOICE_CLOSE_FINALIZATION_SECONDS = 8
 VOICE_SESSION_MAX_ESTIMATED_COST_USD = 0.50
+VOICE_TRANSCRIPTION_USD_PER_MINUTE = 0.017
 VOICE_MODEL_RATES_USD_PER_MILLION = {
     "gpt-realtime-2.1-mini": {"audio_input": 10.0, "audio_input_cached": 0.30, "text_input": 0.60, "text_input_cached": 0.06, "audio_output": 20.0, "text_output": 2.40},
     "gpt-realtime-2.1": {"audio_input": 32.0, "audio_input_cached": 0.40, "text_input": 4.0, "text_input_cached": 0.40, "audio_output": 64.0, "text_output": 24.0},
@@ -308,6 +307,7 @@ class VoiceSessionControl(Base):
 
     call_id: Mapped[str] = mapped_column(String(110), primary_key=True)
     identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
     started_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     ends_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="connecting")
@@ -426,6 +426,7 @@ async def _run_voice_sideband(
     call_id: str,
     ends_at: int,
     model: str,
+    started_at: int,
     ready: asyncio.Event,
     state: dict[str, Any],
 ) -> None:
@@ -433,6 +434,7 @@ async def _run_voice_sideband(
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     usage_seconds: int | None = None
     input_tokens = output_tokens = audio_input_tokens = audio_output_tokens = 0
+    model_usage_cost_usd = 0.0
     estimated_cost_usd = 0.0
     close_reason: str | None = None
     finalization_confirmed = False
@@ -457,6 +459,13 @@ async def _run_voice_sideband(
             close_deadline: float | None = None
             while True:
                 now = time.time()
+                transcription_cost = max(0.0, min(now - started_at, VOICE_MAX_DURATION_SECONDS)) / 60.0 * VOICE_TRANSCRIPTION_USD_PER_MINUTE
+                estimated_cost_usd = model_usage_cost_usd + transcription_cost
+                if not close_requested and estimated_cost_usd >= VOICE_SESSION_MAX_ESTIMATED_COST_USD:
+                    close_reason = "spend_limit"
+                    await connection.send(json.dumps({"type": "session.close"}))
+                    close_requested = True
+                    close_deadline = now + VOICE_CLOSE_FINALIZATION_SECONDS
                 if not close_requested and now >= ends_at:
                     close_reason = "duration_limit"
                     await connection.send(json.dumps({"type": "session.close"}))
@@ -491,7 +500,8 @@ async def _run_voice_sideband(
                     output_tokens += response_cost["output_tokens"]
                     audio_input_tokens += response_cost["audio_input_tokens"]
                     audio_output_tokens += response_cost["audio_output_tokens"]
-                    estimated_cost_usd += response_cost["estimated_cost_usd"]
+                    model_usage_cost_usd += response_cost["estimated_cost_usd"]
+                    estimated_cost_usd = model_usage_cost_usd + transcription_cost
                     _update_voice_control(
                         call_id,
                         input_tokens=input_tokens,
@@ -500,11 +510,6 @@ async def _run_voice_sideband(
                         audio_output_tokens=audio_output_tokens,
                         estimated_cost_usd=estimated_cost_usd,
                     )
-                    if not close_requested and estimated_cost_usd >= VOICE_SESSION_MAX_ESTIMATED_COST_USD:
-                        close_reason = "spend_limit"
-                        await connection.send(json.dumps({"type": "session.close"}))
-                        close_requested = True
-                        close_deadline = time.time() + VOICE_CLOSE_FINALIZATION_SECONDS
                 if isinstance(event, dict) and event.get("type") == "session.closed":
                     final_usage = _event_usage_seconds(event)
                     if final_usage is not None:
@@ -569,6 +574,7 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
                 VoiceSessionControl(
                     call_id=body.call_id,
                     identity_hash=identity_hash,
+                    model=model,
                     started_at=now,
                     ends_at=ends_at,
                     status="connecting",
@@ -588,7 +594,7 @@ async def attach_voice_control(body: VoiceAttachBody, request: Request) -> dict[
     if tasks is None:
         tasks = {}
         request.app.state.voice_sideband_tasks = tasks
-    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, model, ready, state))
+    task = asyncio.create_task(_run_voice_sideband(body.call_id, ends_at, model, now, ready, state))
     tasks[body.call_id] = task
     task.add_done_callback(lambda completed, key=body.call_id, registry=tasks: registry.pop(key, None))
 
