@@ -15,6 +15,7 @@ targets:
         PRODUCT_NAME: "AI HUB"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "AI HUB"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "AI HUB uses the microphone only when you start voice dictation or a live voice conversation."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
