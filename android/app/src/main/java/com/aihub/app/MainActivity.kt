@@ -3,6 +3,7 @@ package com.aihub.app
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
@@ -44,7 +45,7 @@ class MainActivity : Activity() {
                 override fun onShowFileChooser(
                     webView: WebView,
                     filePathCallback: ValueCallback<Array<Uri>>,
-                    fileChooserParams: FileChooserParams
+                    fileChooserParams: WebChromeClient.FileChooserParams
                 ): Boolean {
                     this@MainActivity.fileChooserCallback?.onReceiveValue(null)
                     this@MainActivity.fileChooserCallback = filePathCallback
