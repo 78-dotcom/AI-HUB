@@ -118,6 +118,17 @@ The repository includes a Render Blueprint in `render.yaml`. It describes the ex
 
 Never commit real credentials, `.env` files, or API keys. The web service uses the root `Dockerfile`; the container starts Uvicorn on Render's `PORT`.
 
+## Match-Factor
+
+Match-Factor is an authenticated module inside the AI HUB web app. Open it from the **Match-Factor** button in the main workspace or visit `/match-factor`.
+
+- Live odds are retrieved server-side from The Odds API; the API key is never sent to the browser.
+- Configure `ODDS_API_KEY` only in the Render service environment. Never commit the key to Git.
+- The initial integration requests the EU region and supports the `h2h`, `spreads`, and `totals` markets.
+- The active sports catalogue is cached for one hour. Odds responses are cached for 90 seconds to reduce credit use.
+- The module displays provider usage headers when available. The Odds API charges credits based on requested markets and regions; the sports catalogue endpoint is free.
+- Current integration is a live-odds foundation, not yet the complete Match-Factor analysis engine or bet journal.
+
 ## Telegram prototype
 
 The Telegram bot remains an experimental, separate entry point. It is started with `python -m app` after setting `TELEGRAM_BOT_TOKEN`, provider credentials, and (for private use) `TELEGRAM_ALLOWED_USER_IDS`. Public bot access is disabled unless explicitly enabled with `BOT_PUBLIC_ACCESS=true`. It is not deployed by the current Render web service.
