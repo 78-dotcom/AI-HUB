@@ -214,6 +214,12 @@ async def index() -> FileResponse:
     return FileResponse(os.path.join(WEB_DIR, "index.html"))
 
 
+@app.get("/match-factor")
+async def match_factor_page(request: Request) -> FileResponse:
+    require_session(request)
+    return FileResponse(os.path.join(WEB_DIR, "match-factor.html"))
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "app": "AI HUB"}
