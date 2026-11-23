@@ -6,8 +6,5 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY web_app.py .
-COPY accounts.py .
-COPY conversations.py .
-COPY web ./web
-CMD ["sh", "-c", "exec uvicorn web_app:app --host 0.0.0.0 --port ${PORT:-10000}"]
+COPY guardian_app.py .
+CMD ["sh", "-c", "exec uvicorn guardian_app:app --host 0.0.0.0 --port ${PORT:-10000}"]
