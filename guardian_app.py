@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 SCHEMA = "ai_guardian"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 ADMIN_TOKEN = os.getenv("GUARDIAN_ADMIN_TOKEN", "").strip()
@@ -189,8 +189,23 @@ def root() -> dict[str, Any]:
 def health() -> dict[str, Any]:
     try:
         initialize()
-        return {"status": "ok", "service": "AI Guardian", "version": APP_VERSION, "database": DB_MODE,
-                "model_critic_configured": bool(MODEL_API_KEY), "admin_token_configured": bool(ADMIN_TOKEN)}
+        ready = DB_MODE == "postgres" and bool(MODEL_API_KEY) and bool(ADMIN_TOKEN)
+        return {
+            "status": "ok" if ready else "degraded",
+            "service": "AI Guardian",
+            "version": APP_VERSION,
+            "database": DB_MODE,
+            "database_persistent": DB_MODE == "postgres",
+            "model_critic_configured": bool(MODEL_API_KEY),
+            "admin_token_configured": bool(ADMIN_TOKEN),
+            "missing_configuration": [
+                name for name, configured in (
+                    ("DATABASE_URL", DB_MODE == "postgres"),
+                    ("GUARDIAN_MODEL_API_KEY", bool(MODEL_API_KEY)),
+                    ("GUARDIAN_ADMIN_TOKEN", bool(ADMIN_TOKEN)),
+                ) if not configured
+            ],
+        }
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Database initialization failed: {type(exc).__name__}") from exc
 
