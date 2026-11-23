@@ -160,6 +160,8 @@ def append_event(event: dict[str, Any]) -> dict[str, str]:
     engine = get_engine()
     table = table_name()
     with engine.begin() as conn:
+        if DB_MODE == "postgres":
+            conn.execute(text("SELECT pg_advisory_xact_lock(726381923)"))
         row = conn.execute(text(f"SELECT record_hash FROM {table} ORDER BY created_at DESC, event_id DESC LIMIT 1")).first()
         previous_hash = row[0] if row else "GENESIS"
         event_id = str(uuid.uuid4())
@@ -176,6 +178,11 @@ def append_event(event: dict[str, Any]) -> dict[str, str]:
 @app.on_event("startup")
 def startup() -> None:
     initialize()
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {"service": "AI Guardian", "version": APP_VERSION, "purpose": "Independent audit of AI work", "health": "/health", "audit_endpoint": "POST /v1/audits", "history_endpoint": "GET /v1/audits", "integrity_endpoint": "GET /v1/integrity"}
 
 
 @app.get("/health")
