@@ -1,6 +1,6 @@
 # Match-Factor on-demand collection protocol
 
-This protocol is for one fixture at a time. It does not authorize scraping, bulk retrieval, database writes, or use of a source beyond its terms.
+This protocol is for one fixture at a time under Match-Factor's non-commercial research policy. It does not authorize scraping, bulk retrieval, database writes, AI training or use of a source beyond its terms. Check [NON_COMMERCIAL_POLICY.md](./NON_COMMERCIAL_POLICY.md) before using any provider.
 
 ## 1. Fixture header
 
@@ -62,7 +62,7 @@ A fact is not confirmed merely because it appears on a single unofficial aggrega
 - Player availability and confirmed starting lineup, with publication time.
 - Last 10 games per team: opponent, pace, offensive/defensive efficiency, rebounds, turnovers and three-point volume/accuracy.
 - Key player minutes, role changes and absences; distinguish official injury report from projected lineup.
-- NBA endpoint access does not itself establish commercial rights.
+- NBA.com Terms section 9 prohibits use of NBA Statistics in connection with any gambling activity, including legal gambling. Since Match-Factor analyses betting markets, do not use NBA.com statistics for its model inputs, features, training or betting outputs, even under a non-commercial project designation. Use only a provider whose licence expressly permits betting-related research and model use.
 
 ### Football
 - Competition, venue, kickoff and fixture status.
