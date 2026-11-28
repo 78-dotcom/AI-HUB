@@ -33,8 +33,8 @@
 
 ## Governance
 
-- This policy applies to the Match-Factor module only. It does not by itself change the commercial or non-commercial status of the wider AI-HUB platform.
-- If the intended use changes, stop affected collection and re-review every provider before continuing.
+- This policy applies to the Match-Factor module only. It does not impose a non-commercial status or business-model restriction on the wider AI-HUB platform; AI-HUB remains eligible for future commercial development.
+- If the intended use of Match-Factor changes, stop affected collection and re-review every provider before continuing.
 - Keep a source decision log with date checked, terms URL, permitted activities, prohibited activities and reviewer notes.
 - When terms are ambiguous, classify the source as `rights_unresolved` and do not automate, persist, train on or publish its data.
 - Non-commercial status is a project commitment, not a workaround for copyright, contract, database rights, privacy rules or technical access restrictions.
