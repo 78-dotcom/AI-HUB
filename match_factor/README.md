@@ -10,7 +10,7 @@ This is the first implementation layer for the independent Match-Factor database
 - Sport-specific models will be built on top of this shared event/data layer. Do not combine raw NHL, NBA, football, and tennis features into one uncalibrated model.
 - Pinnacle odds are stored as one external market observation where available, not as the model's target or training label.
 
-## First dataset: Valuebetennis
+## Initial historical reference: Valuebetennis
 
 Valuebetennis publishes ATP/WTA singles match CSVs from 2021 under CC BY 4.0. The published rows include UTC date, tournament/category/surface/round, players, opening odds, last odds before match, winner, score, and duration. Attribution is required; commercial reuse is permitted under the stated licence.
 
@@ -18,17 +18,13 @@ Source: https://www.valuebetennis.com/en/donnees.htm
 
 Attribution: Valuebetennis, Tennis results and odds since 2021, https://www.valuebetennis.com/en/donnees.htm
 
-## Import
+## Current operating mode: research first, no bulk import
 
-1. Obtain a season CSV from the source page.
-2. Set `DATABASE_URL` to the Render PostgreSQL **Internal Database URL** from the AI-HUB service's region.
-3. Run once with schema creation:
-   ```bash
-   python -m match_factor.ingest.valuebetennis --init-schema valuebetennis-matchs-2026.csv
-   ```
-4. Import other seasons without `--init-schema`.
+The Valuebetennis archive is our best-documented historical reference, not an instruction to download it now. At this stage we will consult public sources on demand, validate facts, and keep a source/provenance record. We will not bulk-copy third-party archives or write to the Render database until the source terms, database backup, and persistence plan are verified and the user explicitly approves.
 
-The importer is idempotent for event identity and raw-record hashes. It preserves source rows and records rejected rows in the ingestion-run counters. Review source terms before adding any new provider.
+See [SOURCE_REGISTRY.md](./SOURCE_REGISTRY.md) for the five-sport source map, licence cautions, and collection procedure.
+
+The CSV importer is retained as a future implementation component; it is not part of the current operating workflow.
 
 ## Important safeguards
 
