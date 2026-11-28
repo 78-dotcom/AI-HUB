@@ -18,11 +18,17 @@ Source: https://www.valuebetennis.com/en/donnees.htm
 
 Attribution: Valuebetennis, Tennis results and odds since 2021, https://www.valuebetennis.com/en/donnees.htm
 
+## Project status: non-commercial research
+
+Match-Factor is designated a non-commercial research and model-validation project. This applies to Match-Factor only; it does not change the status or business model of the wider AI-HUB platform. No paid picks, subscriptions, advertising, sponsorship, affiliate revenue or sale/licensing of Match-Factor outputs are part of this project mode.
+
+Non-commercial status does not override provider terms. In particular, NBA.com statistics are excluded from betting-related analysis under NBA.com Terms section 9; NHL public content must not be automatically harvested or entered into our database without permission; and Football-Data.co.uk is not eligible for AI training or automated AI collection. See [NON_COMMERCIAL_POLICY.md](./NON_COMMERCIAL_POLICY.md) for the binding source gates.
+
 ## Current operating mode: research first, no bulk import
 
 The Valuebetennis archive is our best-documented historical reference, not an instruction to download it now. At this stage we will consult public sources on demand, validate facts, and keep a source/provenance record. We will not bulk-copy third-party archives or write to the Render database until the source terms, database backup, and persistence plan are verified and the user explicitly approves.
 
-See [SOURCE_REGISTRY.md](./SOURCE_REGISTRY.md) for the five-sport source map and licence cautions. See [ON_DEMAND_COLLECTION.md](./ON_DEMAND_COLLECTION.md) for the one-fixture collection checklist and provenance record requirements.
+See [SOURCE_REGISTRY.md](./SOURCE_REGISTRY.md) for the five-sport source map and licence cautions. See [NON_COMMERCIAL_POLICY.md](./NON_COMMERCIAL_POLICY.md) for the non-commercial project rules. See [ON_DEMAND_COLLECTION.md](./ON_DEMAND_COLLECTION.md) for the one-fixture collection checklist and provenance record requirements.
 
 The CSV importer is retained as a future implementation component; it is not part of the current operating workflow.
 
@@ -32,4 +38,4 @@ The CSV importer is retained as a future implementation component; it is not par
 - Do not expose the database publicly or change its IP allowlist to make imports work.
 - Do not run a historical backtest until source coverage, duplicates, timezone handling, and pre-match cutoff rules have been validated.
 - Source-recorded odds are not treated as ground truth. They are stored as observations with provenance.
-- Football-Data and other non-commercial datasets must not be ingested into a commercial AI product without permission.
+- A non-commercial project designation does not grant data rights or override restrictions on gambling-related use, automated collection, storage or AI training.
