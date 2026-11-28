@@ -22,7 +22,7 @@ Attribution: Valuebetennis, Tennis results and odds since 2021, https://www.valu
 
 The Valuebetennis archive is our best-documented historical reference, not an instruction to download it now. At this stage we will consult public sources on demand, validate facts, and keep a source/provenance record. We will not bulk-copy third-party archives or write to the Render database until the source terms, database backup, and persistence plan are verified and the user explicitly approves.
 
-See [SOURCE_REGISTRY.md](./SOURCE_REGISTRY.md) for the five-sport source map, licence cautions, and collection procedure.
+See [SOURCE_REGISTRY.md](./SOURCE_REGISTRY.md) for the five-sport source map and licence cautions. See [ON_DEMAND_COLLECTION.md](./ON_DEMAND_COLLECTION.md) for the one-fixture collection checklist and provenance record requirements.
 
 The CSV importer is retained as a future implementation component; it is not part of the current operating workflow.
 
