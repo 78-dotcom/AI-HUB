@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS mf_ingestion_runs (
     file_name TEXT,
     file_sha256 TEXT,
     rows_seen INTEGER NOT NULL DEFAULT 0,
-    rows_inserted INTEGER NOT NULL DEFAULT 0,
+    rows_processed INTEGER NOT NULL DEFAULT 0,
     rows_updated INTEGER NOT NULL DEFAULT 0,
     rows_rejected INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'running',
@@ -53,7 +53,15 @@ CREATE TABLE IF NOT EXISTS mf_participants (
     participant_type TEXT NOT NULL,
     canonical_name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (sport, participant_type, canonical_name)
+ );
+
+CREATE TABLE IF NOT EXISTS mf_participant_aliases (
+    id BIGSERIAL PRIMARY KEY,
+    participant_id BIGINT NOT NULL REFERENCES mf_participants(id) ON DELETE CASCADE,
+    source_key TEXT NOT NULL REFERENCES mf_sources(source_key),
+    external_id TEXT NOT NULL,
+    name_as_seen TEXT NOT NULL,
+    UNIQUE (source_key, external_id)
 );
 
 CREATE TABLE IF NOT EXISTS mf_event_participants (
@@ -69,7 +77,6 @@ CREATE TABLE IF NOT EXISTS mf_results (
     winner_participant_id BIGINT REFERENCES mf_participants(id),
     final_score TEXT,
     duration_minutes INTEGER,
-    settled_at TIMESTAMPTZ,
     source_key TEXT NOT NULL REFERENCES mf_sources(source_key),
     raw_record JSONB NOT NULL DEFAULT '{}'::jsonb
 );
