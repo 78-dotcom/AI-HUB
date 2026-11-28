@@ -83,11 +83,12 @@ CREATE TABLE IF NOT EXISTS mf_odds_snapshots (
     selection TEXT NOT NULL,
     line NUMERIC(12,4),
     decimal_odds NUMERIC(12,6) NOT NULL CHECK (decimal_odds > 1),
-    captured_at TIMESTAMPTZ NOT NULL,
+    captured_at TIMESTAMPTZ,
+    snapshot_stage TEXT NOT NULL CHECK (snapshot_stage IN ('opening', 'closing', 'observed')),
     is_opening BOOLEAN NOT NULL DEFAULT FALSE,
     is_closing BOOLEAN NOT NULL DEFAULT FALSE,
     raw_record JSONB NOT NULL DEFAULT '{}'::jsonb,
-    UNIQUE (event_id, source_key, bookmaker, market, selection, captured_at)
+    UNIQUE (event_id, source_key, bookmaker, market, selection, snapshot_stage)
 );
 CREATE INDEX IF NOT EXISTS ix_mf_odds_event_market_time ON mf_odds_snapshots(event_id, market, captured_at);
 
