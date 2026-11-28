@@ -130,7 +130,7 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                 sample = handle.read(4096)
                 handle.seek(0)
                 try:
-                    dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t")
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
                 except csv.Error:
                     dialect = csv.excel
                 reader = csv.DictReader(handle, dialect=dialect)
@@ -195,11 +195,11 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                                     cur.execute(
                                         """INSERT INTO mf_odds_snapshots
                                            (event_id, source_key, bookmaker, market, selection,
-                                            decimal_odds, captured_at, is_opening, is_closing, raw_record)
+                                            decimal_odds, snapshot_stage, is_opening, is_closing, raw_record)
                                            VALUES (%s, %s, 'Pinnacle (source-recorded)', 'h2h', %s,
                                                    %s, %s, %s, %s, %s)
                                            ON CONFLICT DO NOTHING""",
-                                        (event_id, SOURCE_KEY, role, odds, item["event_start_utc"],
+                                        (event_id, SOURCE_KEY, role, odds, timing,
                                          timing == "opening", timing == "closing", Jsonb(item["raw_record"])),
                                     )
                         raw_json = json.dumps(item["raw_record"], ensure_ascii=False, sort_keys=True)
