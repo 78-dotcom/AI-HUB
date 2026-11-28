@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS mf_participants (
     sport TEXT NOT NULL,
     participant_type TEXT NOT NULL,
     canonical_name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
- );
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS mf_participant_aliases (
     id BIGSERIAL PRIMARY KEY,
