@@ -158,13 +158,26 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                         for role in ("player1", "player2"):
                             name = item[role]
                             cur.execute(
-                                """INSERT INTO mf_participants (sport, participant_type, canonical_name)
-                                   VALUES ('tennis', 'player', %s)
-                                   ON CONFLICT (sport, participant_type, canonical_name)
-                                   DO UPDATE SET canonical_name=EXCLUDED.canonical_name
-                                   RETURNING id""", (name,),
+                                """SELECT p.id FROM mf_participant_aliases a
+                                   JOIN mf_participants p ON p.id=a.participant_id
+                                   WHERE a.source_key=%s AND a.external_id=%s""",
+                                (SOURCE_KEY, item[f"{role}_external_id"] or f"name:{name}"),
                             )
-                            participant_ids[role] = cur.fetchone()[0]
+                            found = cur.fetchone()
+                            if found:
+                                participant_ids[role] = found[0]
+                            else:
+                                cur.execute(
+                                    """INSERT INTO mf_participants (sport, participant_type, canonical_name)
+                                       VALUES ('tennis', 'player', %s) RETURNING id""", (name,),
+                                )
+                                participant_ids[role] = cur.fetchone()[0]
+                                cur.execute(
+                                    """INSERT INTO mf_participant_aliases
+                                       (participant_id, source_key, external_id, name_as_seen)
+                                       VALUES (%s, %s, %s, %s) ON CONFLICT (source_key, external_id) DO NOTHING""",
+                                    (participant_ids[role], SOURCE_KEY, item[f"{role}_external_id"] or f"name:{name}", name),
+                                )
                             cur.execute(
                                 """INSERT INTO mf_event_participants
                                    (event_id, participant_id, role, source_external_id)
@@ -177,8 +190,8 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                         winner_participant_id = participant_ids.get(item["winner_role"]) if item["winner_role"] else None
                         cur.execute(
                             """INSERT INTO mf_results
-                               (event_id, winner_participant_id, final_score, duration_minutes, settled_at, source_key, raw_record)
-                               VALUES (%s, %s, %s, %s, now(), %s, %s)
+                               (event_id, winner_participant_id, final_score, duration_minutes, source_key, raw_record)
+                               VALUES (%s, %s, %s, %s, %s, %s)
                                ON CONFLICT (event_id) DO UPDATE SET
                                  winner_participant_id=EXCLUDED.winner_participant_id,
                                  final_score=EXCLUDED.final_score,
@@ -217,7 +230,7 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                         continue
             cur.execute(
                 """UPDATE mf_ingestion_runs SET finished_at=now(), rows_seen=%s,
-                   rows_inserted=%s, rows_rejected=%s, status=%s WHERE id=%s""",
+                   rows_processed=%s, rows_rejected=%s, status=%s WHERE id=%s""",
                 (counts["seen"], counts["inserted"], counts["rejected"],
                  "completed" if counts["rejected"] == 0 else "completed_with_rejections", run_id),
             )
