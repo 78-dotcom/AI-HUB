@@ -196,7 +196,6 @@ def import_csv(csv_path: Path, database_url: str, init_schema: bool = False) -> 
                                  winner_participant_id=EXCLUDED.winner_participant_id,
                                  final_score=EXCLUDED.final_score,
                                  duration_minutes=EXCLUDED.duration_minutes,
-                                 settled_at=EXCLUDED.settled_at,
                                  raw_record=EXCLUDED.raw_record""",
                             (event_id, winner_participant_id, item["score"], item["duration_minutes"],
                              SOURCE_KEY, Jsonb(item["raw_record"])),
